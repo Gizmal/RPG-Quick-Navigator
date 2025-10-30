@@ -1,0 +1,38 @@
+{
+  "name": "RPG-Quick-Navigator",
+  "displayName": "RPG Quick Navigator",
+  "description": "Simple navigator for free-form RPG: index of declarations, loops, subroutines and procedures, with code navigation.",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.93.0" },
+  "categories": ["Other"],
+  "main": "dist/extension.js",
+  "activationEvents": ["*"],
+  "contributes": {
+    "views": {
+      "explorer": [
+        { "id": "rpgQuickNavigator", "name": "RPG Quick Navigator" }
+      ]
+    },
+    "commands": [
+      { "command": "rpgQuickNavigator.analyzeCurrent", "title": "Analyze current RPG file" }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -w",
+    "test": "vitest",
+    "lint": "eslint .",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "@types/vscode": "^1.93.0",
+    "@typescript-eslint/eslint-plugin": "^8.10.0",
+    "@typescript-eslint/parser": "^8.10.0",
+    "eslint": "^9.13.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3",
+    "vsce": "^3.2.1"
+  },
+  "dependencies": {}
+}
