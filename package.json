@@ -6,7 +6,11 @@
   "engines": { "vscode": "^1.93.0" },
   "categories": ["Other"],
   "main": "dist/extension.js",
-  "activationEvents": ["*"],
+  "activationEvents": [
+    "onLanguage:rpg",
+    "onCommand:rpgQuickNavigator.analyzeCurrent",
+    "*"
+  ],
   "contributes": {
     "views": {
       "explorer": [
