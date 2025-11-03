@@ -12,6 +12,9 @@ export function activate(ctx: vscode.ExtensionContext) {
   );
 }
 
+const categories = ['procedure', 'variable', 'dataStructure', 'toDo'] as const;
+type Category = typeof categories[number];
+
 class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -92,6 +95,8 @@ function labelForCategory(cat: Category): string {
       return 'Data Structures';
     case 'toDo':
       return 'To Do';
+    default:
+      return String(cat);
   }
 }
 
