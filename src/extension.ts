@@ -71,7 +71,7 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
         title: 'Go to symbol',
         arguments: [vscode.window.activeTextEditor?.document.uri, {
           selection: new vscode.Range(sym.range.start.line, 0, sym.range.start.line, 0)
-        } as vscode.TextDocumentsShowOptions
+        } as vscode.TextDocumentShowOptions
         ]
       };
       item.tooltip = sym.kind;
