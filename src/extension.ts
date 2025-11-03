@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 import { parse } from './parser/parse';
-import { RpgSymbol } from '.parser/ast';
+import { RpgSymbol } from './parser/ast';
 
 export function activate(ctx: vscode.ExtensionContext) {
   const provider = new RpgTreeProvider();
   ctx.subscriptions.push(
     vscode.window.registerTreeDataProvider('rpgQuickNavigator', provider),
     vscode.commands.registerCommand('rpgQuickNavigator.analyzeCurrent', analyzeCurrent),
-    vscode.window.onDidChangeActiveTextEdition(() => provider.refresh()),
+    vscode.window.onDidChangeActiveTextEditor(() => provider.refresh()),
     vscode.workspace.onDidChangeTextDocument(() => provider.refresh())
   );
 }
@@ -43,7 +43,7 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     if (!element) {
       return Object.keys(groups).map(k => {
         const item = new vscode.TreeItem(capitalize(k), vscode.TreeItemCollapsibleState.Collapsed);
-        item.id => k;
+        item.id = k;
         return item;
       });
     }
@@ -55,13 +55,13 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
         vscode.TreeItemCollapsibleState.None
       );
       item.command = {
-        command: 'vscode.otem',
+        command: 'vscode.open',
         title: 'Go to symbol',
         arguments: [vscode.window.activeTextEditor?.document.uri, {
           selection: new vscode.Range(sym.range.start.line, 0, sym.range.start.line, 0)
         }]
       };
-      item.tooltip = `${sym.kind]`;
+      item.tooltip = `${sym.kind}`;
       item.description = sym.kind === 'variable' ? (sym as any).dclType : undefined;
       return item;
     });
