@@ -16,7 +16,7 @@ const CONTROL_RE = /^\s*(if|elseif|else|select|when|other|for|dow|do)\b/i;
 
 export function parse(text: string): RpgDocument {
   const lines = text.split(/\r?\n/);
-  const symbols = RpgSymbol[] : [];
+  const symbols: RpgSymbol[] = [];
   let controlBlocks = 0;
 
   for (let lineNum = 0; lineNum < lines.length; lineNum++) {
