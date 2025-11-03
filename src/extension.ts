@@ -26,10 +26,13 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 
   getChildren(element?: vscode.TreeItem): vscode.ProviderResult<vscode.TreeItem[]> {
     const editor = vscode.window.activeTextEditor;
-    if (!editor) return [new vscode.TreeItem('Open a .RPG file to analyze')];
+    if (!editor) { 
+      return [new vscode.TreeItem('Open a .RPG file to analyze')];
+    }
     
     const doc = parse(editor.document.getText());
-    const groups: Record<string, RpgSymbol[]> = {
+    
+    const groups: Record<Category, RpgSymbol[]> = {
       procedure: [],
       variable: [],
       dataStructure: [],
@@ -37,21 +40,27 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     };
 
     for (const s of doc.symbols) {
-      groups[s.kind].push(s);
+      groups[s.kind as Category].push(s);
     }
 
-    if (!element) {
-      return Object.keys(groups).map(k => {
-        const item = new vscode.TreeItem(capitalize(k), vscode.TreeItemCollapsibleState.Collapsed);
+    if (!element || !element.id) {
+      return categories.map((k) => {
+        const item = new vscode.TreeItem(
+          labelForCategory(k), 
+          vscode.TreeItemCollapsibleState.Collapsed
+        );
         item.id = k;
         return item;
       });
     }
 
-    const cat = element.id as keyof typeof groups;
-    const items = groups[cat].map(sym => {
+    const cat = element.id as Category;
+    const list = groups[cat] ?? [];
+    
+    const items = list.map((sym) => {
+      const label = labelForSymbol(sym);
       const item = new vscode.TreeItem(
-        sym.name ?? (sym.kind === 'toDo' ? sym.text : '?'),
+        label,
         vscode.TreeItemCollapsibleState.None
       );
       item.command = {
@@ -59,14 +68,41 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
         title: 'Go to symbol',
         arguments: [vscode.window.activeTextEditor?.document.uri, {
           selection: new vscode.Range(sym.range.start.line, 0, sym.range.start.line, 0)
-        }]
+        } as vscode.TextDocumentsShowOptions
+        ]
       };
-      item.tooltip = `${sym.kind}`;
-      item.description = sym.kind === 'variable' ? (sym as any).dclType : undefined;
+      item.tooltip = sym.kind;
+      if (sym.kind === 'variable') {
+        item.description = sym.dclType;
+      }
       return item;
     });
 
     return items;
+  }
+}
+
+function labelForCategory(cat: Category): string {
+  switch (cat) {
+    case 'procedure':
+      return 'Procedures';
+    case 'variable':
+      return 'Variables';
+    case 'dataStructure':
+      return 'Data Structures';
+    case 'toDo':
+      return 'To Do';
+  }
+}
+
+function labelForSymbol(sym: RpgSymbol): string {
+  switch (sym.kind) {
+    case 'procedure':
+    case 'variable':
+    case 'dataStructure':
+      return sym.name;
+    case 'toDo':
+      return sym.text;
   }
 }
 
@@ -92,10 +128,6 @@ function escapeHtml(s: string) {
     '>': '&gt;', 
     '&': '&amp;' 
   }[c]!));
-}
-
-function capitalize(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export function deactivate() {}
