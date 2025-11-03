@@ -24,7 +24,7 @@ export function parse(text: string): RpgDocument {
 
     const mProc = PROC_RE.exec(line);
     if (mProc) {
-      symbols.push(makeProc(mProc[1], lineNum, line.length));
+      symbols.push(makeProc(mProc[1]!, lineNum, line.length));
     }
 
     if (ENDPROC_RE.test(line)) {
@@ -33,17 +33,17 @@ export function parse(text: string): RpgDocument {
 
     const mVar = VAR_RE.exec(line);
     if (mVar) {
-      symbols.push(makeVar(mVar[1], mVar[2].trim(), lineNum, line.length));
+      symbols.push(makeVar(mVar[1]!, mVar[2]!.trim(), lineNum, line.length));
     }
 
     const mDs = DS_RE.exec(line);
     if (mDs) {
-      symbols.push(makeDS(mDs[1], lineNum, line.length));
+      symbols.push(makeDS(mDs[1]!, lineNum, line.length));
     }
 
-    const mTodo = TODO_RE.exec(line);
-    if (mTodo) {
-      symbols.push(makeToDo(mTodo[1].trim(), lineNum, line.length));
+    const mToDo = TODO_RE.exec(line);
+    if (mToDo) {
+      symbols.push(makeToDo(mToDo[1]!.trim(), lineNum, line.length));
     }
 
     if (CONTROL_RE.test(line)) {
