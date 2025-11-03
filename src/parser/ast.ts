@@ -9,7 +9,6 @@ export interface Range {
 }
 
 export interface BaseNode {
-  name?: string;
   range: Range;
 }
 
@@ -34,7 +33,7 @@ export interface ToDo extends BaseNode {
   text: string;
 }
 
-export type RpgSymbol = Procedure | Variable | DataStructure | Todo;
+export type RpgSymbol = Procedure | Variable | DataStructure | ToDo;
 
 export interface RpgDocument {
   symbols: RpgSymbol[];
