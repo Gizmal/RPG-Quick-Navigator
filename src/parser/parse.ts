@@ -11,7 +11,7 @@ const PROC_RE = /^\s*dcl-proc\s+([A-Za-z0-9_]+)\b/i;
 const ENDPROC_RE = /^\s*end-proc\b/i;
 const VAR_RE = /^\s*dcl-s\s+([A-Za-z0-9_]+)\s+([^;]+);/i;
 const DS_RE = /^\s*dcl-ds\s+([A-Za-z0-9_]+)\b/i;
-const TODO_RE = /\/\/\s*TODO:(.*)$/i;
+const TODO_RE = /\/\/\s*TO\s*DO\s*:?(.*)$/i;
 const CONTROL_RE = /^\s*(if|elseif|else|select|when|other|for|dow|do)\b/i;
 
 export function parse(text: string): RpgDocument {
