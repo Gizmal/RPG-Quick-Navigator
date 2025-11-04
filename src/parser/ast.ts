@@ -39,6 +39,6 @@ export interface RpgDocument {
   symbols: RpgSymbol[];
   metrics: {
     controlBlocks: number;
-    todos: number;
+    toDos: number;
   };
 }
