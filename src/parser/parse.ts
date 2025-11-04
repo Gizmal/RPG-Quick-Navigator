@@ -55,7 +55,7 @@ export function parse(text: string): RpgDocument {
     symbols,
     metrics: {
       controlBlocks,
-      todos: symbols.filter(s => s.kind === 'toDo').length
+      toDos: symbols.filter(s => s.kind === 'toDo').length
     }
   };
 }
