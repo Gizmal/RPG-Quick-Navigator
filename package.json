@@ -26,7 +26,8 @@
     "watch": "tsc -w",
     "test": "vitest",
     "lint": "eslint .",
-    "package": "vsce package"
+    "package": "vsce package",
+    "typecheck:test": "tsc -p tsconfig.vitest.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
