@@ -9,8 +9,14 @@ describe('RPG Parser', () => {
     const doc = parse(sample);
 
     expect(doc.symbols.some(s => s.kind === 'procedure')).toBe(true);
+    expect(doc.symbols.some(s => s.kind === 'subroutine')).toBe(true);
+    expect(doc.symbols.some(s => s.kind === 'constant')).toBe(true);
     expect(doc.symbols.some(s => s.kind === 'variable')).toBe(true);
     expect(doc.symbols.some(s => s.kind === 'dataStructure')).toBe(true);
+    expect(doc.symbols.some(s => s.kind === 'itemDS')).toBe(true);
+    expect(doc.symbols.some(s => s.kind === 'enum')).toBe(true);
+    expect(doc.symbols.some(s => s.kind === 'itemEnum')).toBe(true);
+    expect(doc.symbols.some(s => s.kind === 'declaredFile')).toBe(true);
     expect(doc.symbols.some(s => s.kind === 'toDo')).toBe(true);
   });
 
