@@ -1,5 +1,5 @@
 {
-  "name": "RPG-Quick-Navigator",
+  "name": "rpg-quick-navigator",
   "displayName": "RPG Quick Navigator",
   "description": "Simple navigator for free-form RPG: index of declarations, loops, subroutines and procedures, with code navigation.",
   "version": "0.0.1",
@@ -8,18 +8,79 @@
   "main": "dist/extension.js",
   "activationEvents": [
     "onLanguage:rpg",
-    "onCommand:rpgQuickNavigator.analyzeCurrent",
-    "*"
+    "onLanguage:rpgle",
+    "onLanguage:sqlrpgle"
   ],
+  "icon": "images/rpgQuickNavigatorMarketplace.png",
   "contributes": {
     "views": {
       "explorer": [
-        { "id": "rpgQuickNavigator", "name": "RPG Quick Navigator" }
+        { "id": "rpgQuickNavigatorExplorer", "name": "RPG Quick Navigator", "icon": "images/logoRpgQuickNavigator24px.svg" }
+      ],
+      "rpgQuickNavigator": [
+        { "id": "rpgQuickNavigatorView", "name": "RPG Quick Navigator", "icon": "images/logoRpgQuickNavigator24px.svg" }
       ]
     },
     "commands": [
-      { "command": "rpgQuickNavigator.analyzeCurrent", "title": "Analyze current RPG file" }
-    ]
+      { 
+        "command": "rpgQuickNavigator.analyzeCurrent", 
+        "title": "Analyze current RPG file" 
+      },
+      { 
+        "command": "rpgQuickNavigator.toggleSortOrder", 
+        "title": "Toggle sort order" 
+      },
+      { 
+        "command": "rpgQuickNavigator.toggleSortOrder.alphabetical", 
+        "title": "Sort alphabetically", 
+        "icon": { 
+          "light": "images/sortAlphaDownLight24px.svg", 
+          "dark": "images/sortAlphaDownDark24px.svg" 
+          } 
+      },
+      { 
+        "command": "rpgQuickNavigator.toggleSortOrder.chronological", 
+        "title": "Sort chronologically", 
+        "icon": { 
+          "light": "images/sortChronoDownLight24px.svg", 
+          "dark": "images/sortChronoDownDark24px.svg" 
+        } 
+      }
+    ],
+    "configuration": {
+      "title": "RPG Quick Navigator",
+      "properties": {
+        "rpgQuickNavigator.sortOrder": {
+          "type": "string",
+          "enum": ["alphabetical", "chronological"],
+          "default": "chronological",
+          "description": "Sort order for symbols in the navigator."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "rpgQuickNavigator", "title": "RPG Quick Navigator", "icon": "images/logoRpgQuickNavigator24px.svg"}
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "rpgQuickNavigator.toggleSortOrder.chronological",
+          "when": "( view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer ) && rpgQuickNavigator.sortOrder == alphabetical",
+          "group": "navigation@10"
+        },
+        {
+          "command": "rpgQuickNavigator.toggleSortOrder.alphabetical",
+          "when": "( view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer ) && rpgQuickNavigator.sortOrder == chronological",
+          "group": "navigation@10"
+        }
+      ],
+      "commandPalette": [
+        { "command": "rpgQuickNavigator.toggleSortOrder.alphabetical", "when": "false" },
+        { "command": "rpgQuickNavigator.toggleSortOrder.chronological", "when": "false" }
+      ]
+    }
   },
   "scripts": {
     "build": "tsc -p .",
