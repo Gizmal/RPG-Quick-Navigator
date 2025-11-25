@@ -1,0 +1,19 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+  <!-- Magnifying glass -->
+  <g stroke-width="16">
+    <!-- Circle -->
+    <circle cx="128" cy="128" r="80"/>
+    <!-- Handle -->
+    <line x1="71" y1="185" x2="16" y2="240"/>
+  </g>
+
+  <!-- Symbol </> -->
+  <g transform="translate(128, 128)" stroke-width="8">
+    <!-- < -->
+    <polyline points="-24,-32 -56,0 -24,32"/>
+    <!-- / -->
+    <line x1="-8" y1="32" x2="8" y2="-32"/>
+    <!-- > -->
+    <polyline points="24,-32 56,0 24,32"/>
+  </g>
+</svg>
