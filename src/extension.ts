@@ -48,7 +48,7 @@ export function activate(ctx: vscode.ExtensionContext) {
   }
 
   
-  void refreshSortContext();
+  void refreshContext();
   ctx.subscriptions.push(
     vscode.window.registerTreeDataProvider('rpgQuickNavigatorView', provider),
     vscode.window.registerTreeDataProvider('rpgQuickNavigatorExplorer', provider),
@@ -66,23 +66,39 @@ export function activate(ctx: vscode.ExtensionContext) {
       const current = config.get<string>('sortOrder') ?? 'chronological';
       const next: SortOrder = current === 'chronological' ? 'alphabetical' : 'chronological';
       const hasWorkspace = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
-      const target = hasWorkspace ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+      const target = hasWorkspace ? 
+        vscode.ConfigurationTarget.Workspace : 
+        vscode.ConfigurationTarget.Global;
       await config.update('sortOrder', next, target);
-      await refreshSortContext();
+      await refreshContext();
       vscode.window.showInformationMessage(`RPG Quick Navigator: Sort order set to ${next}.`);
       provider.refresh();
     }),
-    
     vscode.commands.registerCommand('rpgQuickNavigator.toggleSortOrder.alphabetical', () => vscode.commands.executeCommand('rpgQuickNavigator.toggleSortOrder')),
     vscode.commands.registerCommand('rpgQuickNavigator.toggleSortOrder.chronological', () => vscode.commands.executeCommand('rpgQuickNavigator.toggleSortOrder')),
-    vscode.window.onDidChangeActiveTextEditor(() => provider.refresh()),
-    vscode.workspace.onDidChangeTextDocument(() => provider.refresh()),
+    vscode.commands.registerCommand('rpgQuickNavigator.toggleGroupByKind', async () => {
+      const config = vscode.workspace.getConfiguration('rpgQuickNavigator');
+      const current = getGroupByKind();
+      const next = !current;
+      const hasWorkspace = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
+      const target = hasWorkspace ? 
+        vscode.ConfigurationTarget.Workspace : 
+        vscode.ConfigurationTarget.Global;
+      await config.update('groupByKind', next, target);
+      await refreshContext();
+      vscode.window.showInformationMessage(`RPG Quick Navigator: Group by kind ${next ? 'enabled' : 'disabled'}.`);
+      provider.refresh();
+    }),
+    vscode.commands.registerCommand('rpgQuickNavigator.toggleGroupByKind.group', () => vscode.commands.executeCommand('rpgQuickNavigator.toggleGroupByKind')),
+    vscode.commands.registerCommand('rpgQuickNavigator.toggleGroupByKind.ungroup', () => vscode.commands.executeCommand('rpgQuickNavigator.toggleGroupByKind')),
     vscode.workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration('rpgQuickNavigator.sortOrder')) {
-        void refreshSortContext();
+      if (e.affectsConfiguration('rpgQuickNavigator.sortOrder') || e.affectsConfiguration('rpgQuickNavigator.groupByKind')) {
+        void refreshContext();
         provider.refresh();
       }
-    })
+    }),
+    vscode.window.onDidChangeActiveTextEditor(() => provider.refresh()),
+    vscode.workspace.onDidChangeTextDocument(() => provider.refresh())
   );
   (async () => {
     const openedOnce = ctx.globalState.get<boolean>('rpgQuickNavigator.openedOnce');
@@ -91,12 +107,18 @@ export function activate(ctx: vscode.ExtensionContext) {
       await ctx.globalState.update('rpgQuickNavigator.openedOnce', true);
     }
   })();
-  async function refreshSortContext() {
+  async function refreshContext() {
     const order = getSortOrder();
+    const state = getGroupByKind();
     await vscode.commands.executeCommand(
       'setContext', 
       'rpgQuickNavigator.sortOrder', 
       order
+    );
+    await vscode.commands.executeCommand(
+      'setContext',
+      'rpgQuickNavigator.groupByKind',
+      state
     );
   }
 }
@@ -109,6 +131,11 @@ type SortOrder = 'alphabetical' | 'chronological';
 function getSortOrder(): SortOrder {
   const config = vscode.workspace.getConfiguration('rpgQuickNavigator');
   return (config.get<SortOrder>('sortOrder') ?? 'chronological');
+}
+
+function getGroupByKind(): boolean {
+  const config = vscode.workspace.getConfiguration('rpgQuickNavigator');
+  return config.get<boolean>('groupByKind') ?? true;
 }
 
 class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
@@ -226,8 +253,43 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     const catId = element.id as Category;
     const list = groups[catId] ?? [];
     const order = getSortOrder();
-      
+    function kindRank(sym: RpgSymbol): number {
+      if (catId === 'procedure') {
+        if (sym.kind === 'procedure')  return 0;
+        if (sym.kind === 'subroutine') return 1;
+        return 2;
+      }
+      if (catId === 'variable') {
+        switch (sym.kind) {
+          case 'constant':      return 0;
+          case 'enum':          return 1;
+          case 'itemEnum':      return 2;
+          case 'variable':      return 3;
+          case 'dataStructure': return 4;
+          case 'itemDS':        return 5;
+        default:                return 6;
+        }
+      }
+      if (catId === 'declaredFile') {
+        if (sym.kind !== 'declaredFile') return 3;
+        switch (sym.fileType) {
+          case 'Data file (PF/LF)':      return 0;
+          case 'Display file (DSPF)':    return 1;
+          case 'Printer file (PRTF)':    return 2;
+          default:                       return 3;
+        }
+      }
+      return 0;
+    }  
+
     const sorted = [...list].sort((a, b) => {
+      const groupByKind = getGroupByKind();
+      if (groupByKind) {
+        const rankA = kindRank(a);
+        const rankB = kindRank(b);
+        if (rankA !== rankB) return rankA - rankB;
+      }
+
       if (order === 'chronological') {
         // sort by line number
         const lineA = a.range.start.line;
