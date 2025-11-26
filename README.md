@@ -42,12 +42,16 @@ A VS Code extension that provides intelligent code navigation and analysis for f
   - _**Filter Symbols**_: Filter symbols by type or name search
 
 ### Detailed Analysis Report
-   _**To be implemented**_:
   - _**Analyze Current**_: Generate a comprehensive analysis report with statistics:
     - Symbol counts by category
     - Detailed listings with line numbers
     - Raw JSON output for advanced analysis
     - One-click JSON copy to clipboard
+    _**To be implemented**_:
+  - _**One-button analysis**_: Quickly generate a full analysis report with a single click.
+  - _**XML/PDF support**_: Different formats for report generation
+  - _**Navigation through report**_: Jump to symbol locations directly from the analysis report for quick access.
+  - _**Data visualization**_: Tree-view as graph for code structure
 
 ## Supported Languages
   - Free-form RPG (`.rpg`)
