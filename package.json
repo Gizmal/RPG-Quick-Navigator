@@ -45,6 +45,26 @@
           "light": "images/sortChronoDownLight24px.svg", 
           "dark": "images/sortChronoDownDark24px.svg" 
         } 
+      },
+      {
+        "command": "rpgQuickNavigator.toggleGroupByKind",
+        "title": "Toggle grouping by kind"
+      },
+      {
+        "command": "rpgQuickNavigator.toggleGroupByKind.group",
+        "title": "Group by kind",
+        "icon": {
+          "light": "images/groupByKindLight24px.svg",
+          "dark": "images/groupByKindDark24px.svg"
+        }
+      },
+      {
+        "command": "rpgQuickNavigator.toggleGroupByKind.ungroup",
+        "title": "Ungroup by kind",
+        "icon": {
+          "light": "images/ungroupByKindLight24px.svg",
+          "dark": "images/ungroupByKindDark24px.svg"
+        }
       }
     ],
     "configuration": {
@@ -55,6 +75,11 @@
           "enum": ["alphabetical", "chronological"],
           "default": "chronological",
           "description": "Sort order for symbols in the navigator."
+        },
+        "rpgQuickNavigator.groupByKind": {
+          "type": "boolean",
+          "default": true,
+          "description": "Group symbols by kind inside each category (e.g. const, var, DS, enum, subr)."
         }
       }
     },
@@ -74,6 +99,16 @@
           "command": "rpgQuickNavigator.toggleSortOrder.alphabetical",
           "when": "( view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer ) && rpgQuickNavigator.sortOrder == chronological",
           "group": "navigation@10"
+        },
+        {
+          "command": "rpgQuickNavigator.toggleGroupByKind.group",
+          "when": "(view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer) && !rpgQuickNavigator.groupByKind",
+          "group": "navigation@20"
+        },
+        {
+          "command": "rpgQuickNavigator.toggleGroupByKind.ungroup",
+          "when": "(view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer) && rpgQuickNavigator.groupByKind",
+          "group": "navigation@20"
         }
       ],
       "commandPalette": [
