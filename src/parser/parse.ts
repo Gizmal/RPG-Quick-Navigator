@@ -86,6 +86,7 @@ export function parse(text: string): RpgDocument {
       const dsIsTab: boolean = dsDim.isTab;
       const dsTabDim: string = dsDim.tabDim;
       symbols.push(makeDS(dsName, dsOptions, dsItem, dsIsTab, dsTabDim, lineNum, line.length));
+      symbols.push(...dsItem);
     }
 
     if (ENDDS_RE.test(line)) {
@@ -99,6 +100,7 @@ export function parse(text: string): RpgDocument {
       const enumContent: string[] = extractContent(lineNum, lines, ENDENUM_RE);
       const enumItem: ItemEnum[] = parseItemsForEnum(DSENUMITEM_RE, enumContent, lineNum);
       symbols.push(makeEnum(enumName, enumOptions, enumItem, lineNum, line.length));
+      symbols.push(...enumItem);
     }
 
     if (ENDENUM_RE.test(line)) {
