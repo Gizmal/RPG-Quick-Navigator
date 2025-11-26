@@ -4,6 +4,24 @@ import { RpgDocument, RpgSymbol } from './parser/ast';
 
 // icon: https://www.flaticon.com/fr/icones-gratuites/revision-du-code
 
+const documentCache: {uri?: string; version?: number; doc?: RpgDocument} = {};
+
+function getCachedDocument(document: vscode.TextDocument): RpgDocument {
+  const uri = document.uri.toString();
+  const version = document.version;
+  
+  if (documentCache.uri === uri && documentCache.version === version && documentCache.doc) {
+    return documentCache.doc;
+  }
+  
+  const doc = parse(document.getText());
+  documentCache.uri = uri;
+  documentCache.version = version;
+  documentCache.doc = doc;
+  
+  return doc;
+}
+
 export function activate(ctx: vscode.ExtensionContext) {
   const provider = new RpgTreeProvider();
 
@@ -14,7 +32,9 @@ export function activate(ctx: vscode.ExtensionContext) {
           const wordRange = document.getWordRangeAtPosition(position);
           if (!wordRange) return;
           const word = document.getText(wordRange);
-          const doc = parse(document.getText()); // ToDo : use _cache for doc
+          
+          const doc = getCachedDocument(document);
+          
           const sym = doc.symbols.find(s => {
             if (s.kind === 'toDo') return s.text === word;
             return 'name' in s && s.name === word;
@@ -94,7 +114,6 @@ function getSortOrder(): SortOrder {
 class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<void>();
   private _refreshTimer: NodeJS.Timeout | undefined;
-  private _cache: {uri?: string; version?: number; doc?: RpgDocument} = {};
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   refresh() {
@@ -113,7 +132,7 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     if (element instanceof SymbolItem) {
       const sym = element.symbol;
       if (sym.kind === 'dataStructure' || sym.kind === 'enum') {
-        const documentUri = this._cache.uri ? vscode.Uri.parse(this._cache.uri) : undefined;
+        const documentUri = documentCache.uri ? vscode.Uri.parse(documentCache.uri) : undefined;
         const childTreeItems: vscode.TreeItem[] = (sym as any).values?.map((memberSymbol: any) => {
           const label = memberSymbol.name + (memberSymbol.dclType ? ` : ${memberSymbol.dclType}` : (memberSymbol.value ? ` = ${memberSymbol.value}` : ''));
           const childItem = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
@@ -135,16 +154,7 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       return [new vscode.TreeItem('Open a RPG file to analyze')];
     }
     
-    const uri = editor.document.uri.toString();
-    const version = editor.document.version;
-    let doc: RpgDocument | undefined;
-
-    if (this._cache.uri === uri && this._cache.version === version && this._cache.doc) {
-      doc = this._cache.doc;
-    } else {
-    doc = parse(editor.document.getText());
-    this._cache = { uri, version, doc };  
-  }
+    const doc = getCachedDocument(editor.document);
 
     const groups: Record<Category, RpgSymbol[]> = {
       procedure: [],
@@ -338,8 +348,7 @@ async function analyzeCurrent() {
     vscode.window.showInformationMessage('No active editor.');
     return;
   }
-  const text = editor.document.getText();
-  const doc = parse(text);
+  const doc = getCachedDocument(editor.document);
   const fileName = editor.document.uri.fsPath.split(/[/\\]/).pop() ?? editor.document.fileName;
   const panel = vscode.window.createWebviewPanel(
     'rpgReport',
