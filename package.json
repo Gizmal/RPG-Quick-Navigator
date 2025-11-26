@@ -24,7 +24,11 @@
     "commands": [
       { 
         "command": "rpgQuickNavigator.analyzeCurrent", 
-        "title": "Analyze current RPG file" 
+        "title": "Generate an analysis report of the current RPG file",
+        "icon": {
+          "light": "images/analyzeCurrentLight24px.svg",
+          "dark": "images/analyzeCurrentDark24px.svg"
+        }
       },
       { 
         "command": "rpgQuickNavigator.toggleSortOrder", 
@@ -91,6 +95,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "rpgQuickNavigator.analyzeCurrent",
+          "when": "view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer",
+          "group": "navigation@30"
+        },
+        {
           "command": "rpgQuickNavigator.toggleSortOrder.chronological",
           "when": "( view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer ) && rpgQuickNavigator.sortOrder == alphabetical",
           "group": "navigation@10"
@@ -102,12 +111,12 @@
         },
         {
           "command": "rpgQuickNavigator.toggleGroupByKind.group",
-          "when": "(view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer) && !rpgQuickNavigator.groupByKind",
+          "when": "( view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer ) && !rpgQuickNavigator.groupByKind",
           "group": "navigation@20"
         },
         {
           "command": "rpgQuickNavigator.toggleGroupByKind.ungroup",
-          "when": "(view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer) && rpgQuickNavigator.groupByKind",
+          "when": "( view == rpgQuickNavigatorView || view == rpgQuickNavigatorExplorer ) && rpgQuickNavigator.groupByKind",
           "group": "navigation@20"
         }
       ],
