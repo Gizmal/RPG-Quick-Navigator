@@ -42,7 +42,7 @@ A VS Code extension that provides intelligent code navigation and analysis for f
   - _**Filter Symbols**_: Filter symbols by type or name search
 
 ### Detailed Analysis Report
-    _**To be implemented**_:
+   _**To be implemented**_:
   - _**Analyze Current**_: Generate a comprehensive analysis report with statistics:
     - Symbol counts by category
     - Detailed listings with line numbers
