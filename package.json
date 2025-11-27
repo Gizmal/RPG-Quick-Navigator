@@ -28,7 +28,8 @@
         "icon": {
           "light": "images/analyzeCurrentLight24px.svg",
           "dark": "images/analyzeCurrentDark24px.svg"
-        }
+        },
+        "enablement": "rpgQuickNavigator.hasActiveRpgEditor"
       },
       { 
         "command": "rpgQuickNavigator.toggleSortOrder", 
