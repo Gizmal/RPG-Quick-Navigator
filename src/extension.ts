@@ -400,7 +400,7 @@ function labelForSymbol(sym: RpgSymbol): string {
 async function analyzeCurrent() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    vscode.window.showInformationMessage('No active editor.');
+    vscode.window.showInformationMessage('RPG Quick Navigator: No active editor.');
     return;
   }
   const doc = getCachedDocument(editor.document);
@@ -423,13 +423,28 @@ async function analyzeCurrent() {
     }
 
     if (msg?.type === 'refresh') {
-      const editor = vscode.window.activeTextEditor;
+      //const editor = vscode.window.activeTextEditor;
       if (!editor) {
         vscode.window.showInformationMessage('RPG Quick Navigator: No active editor to refresh from.');
         return;
       }
       const newDoc = getCachedDocument(editor.document);
       panel.webview.html = renderReport(newDoc);
+    }
+
+    if (msg?.type === 'revealLine') {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showInformationMessage('RPG Quick Navigator: No active editor to reveal in.');
+        return;
+      }
+      const line = typeof msg.line === 'number' ?
+        msg.line :
+        0;
+      void vscode.commands.executeCommand('revealLine', {
+        lineNumber: line,
+        at: 'center'
+      });
     }
   });
 }
@@ -509,66 +524,330 @@ function renderReport(doc: RpgDocument): string {
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>RPG Analysis</title>
       <style>
-        body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 16px; }
-        h1 { margin: 0 0 12px; font-size: 18px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
-        .card { padding: 12px; border: 1px solid #cccccc; border-radius: 4px; box-shadow: 0 1px 3px #22222280; }
-        .muted { color: #666666; font-size: 12px; }
-        .btn { display: inline-block; border: 1px solid #888888; border-radius: 3px; padding: 6px 10px; cursor: pointer; user-select: none; background: #007acc; color: white; }
-        pre { background: #222222; color: #cccccc; padding: 12px; border-radius: 4px; overflow: auto; }
-        ul { margin: 8px 0 0 20px; }
-        .section { margin-top: 10px; }
-        .title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        :root {
+          --bg: #1e1e1e;
+          --bg-card: #252525;
+          --border: #3c3c3c;
+          --text: #f3f3f3;
+          --counts: #ababab;
+          --muted: #9e9e9e;
+          --accent: #007acc;
+          --accent-soft: #007acc40;
+          --accent-border: #005a9e;
+          --badge-bg: #3c3c3c;
+          --pre-bg: #1a1a1a;
+          --pre: #cccccc;
+          --shadow: #00000060;
+        }
+        body { 
+          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; 
+          margin: 0; 
+          padding: 16px; 
+          background: var(--bg);
+          color: var(--text);
+        }
+        h1 { 
+          margin: 0 0 12px; 
+          font-size: 18px; 
+        }
+        h2 {
+          margin: 0 0 6px; 
+          font-size: 15px; 
+        }
+        .title {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        .title-sub {
+          font-size: 12px;
+          color: var(--muted);
+        }
+        .btn {
+          display: inline-block;
+          border-radius: 3px;
+          padding: 6px 10px;
+          cursor: pointer;
+          user-select: none;
+          background: var(--accent);
+          color: white;
+          border: 1px solid var(--accent-border);
+          font-size: 12px;
+          margin-left: 6px;
+        }
+        .btn.secondary {
+          background: transparent;
+          color: var(--text);
+          border-color: var(--border);
+        }
+        .icon-refresh {
+          margin-right: 4px;
+          font-size: 12px;
+          vertical-align: middle;
+        }
+        .btn:hover {
+          filter: brightness(1.1);
+        }
+        .layout {
+          display: grid;
+          grid-template-columns: minmax(260px, 1.1fr) minmax(260px, 1.3fr);
+          gap: 16px;
+        }
+        @media (max-width: 1000px) {
+          .layout {
+            grid-template-columns: 1fr;
+          }
+        }
+        .grid {
+          display: grid; 
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); 
+          gap: 10px;
+        }
+        .card {
+          padding: 12px; 
+          border: 1px solid var(--border); 
+          border-radius: 6px; 
+          background: var(--bg-card);
+          box-shadow: 0 1px 3px var(--shadow);
+        }
+        .summary-card-title {
+          display: flex;
+          align-items: baseline;
+          gap: 4px;
+          margin-bottom: 4px;
+        }
+        .summary-card-title span:first-child {
+          font-size: 14px;
+          font-weight: 600;
+        }
+        .summary-count {
+          color: var(--counts)
+          font-weight: 700;
+          font-size: 16px;
+        }
+        .summary-label {
+          font-size: 11px;
+          color: var(--muted);
+          letter-spacing: 0.04em;
+        }
+        .badge {
+          display: inline-block;
+          padding: 2px 6px;
+          border-radius: 999px;
+          background: var(--badge-bg);
+          font-size: 11px;
+          color: var(--muted);
+        }
+        .section {
+          margin-top: 10px;
+        }
+        details.section {
+          border-radius: 6px;
+          border: 1px solid var(--border);
+          background: var(--bg-card);
+          margin-top: 8px;
+        }
+        details.section summary {
+          list-style: none;
+          cursor: pointer;
+          padding: 8px 10px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        details.section summary::before {
+          content: "▸";
+          margin-right: 6px;
+          font-size: 20px;
+          opacity: 0.75;
+        }
+        details.section[open] summary::before {
+          content: "▾";
+        }
+        details.section summary::-webkit-details-marker {
+          display: none;
+        }
+        .section-title {
+          font-weight: 500;
+        }
+        .section-count {
+          font-size: 11px;
+          color: var(--muted);
+        }
+        .section-body {
+          padding: 0 10px 8px 10px;
+        }
+        ul {
+          margin: 6px 0 0 16px;
+          padding: 0;
+        }
+        li {
+          margin: 2px 0;
+          font-size: 12px;
+        }
+        li a {
+          color: inherit;
+          text-decoration: none;
+          border-bottom: 1px dashed transparent;
+          cursor: pointer;
+        }
+        li a:hover {
+          color: var(--accent);
+          border-bottom-color: var(--accent-soft);
+        }
+        .muted {
+          color: var(--muted); 
+          font-size: 11px;
+        }
+        pre {
+          background: var(--pre-bg);
+          color: var(--pre);
+          padding: 10px; 
+          border-radius: 4px; 
+          overflow: auto; 
+          font-size: 11px;
+          max-height: 320px;
+        }
+        .json-title {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 4px;
+        }
       </style>
     </head>
     <body>
       <div class="title">
-        <h1>RPG Analysis</h1>
         <div>
-          <button class="btn" onclick="refreshReport()">Refresh</button>
+          <h1>RPG Analysis</h1>
+          <div class="title-sub">
+            Summary of procedures, variables, files and control structures for the current RPG source.
+          </div>
+        </div>
+        <div>
+          <button class="btn secondary" onclick="refreshReport()">
+            <span class="icon-refresh" aria-hidden="true">⟳</span>
+            <span>Refresh</span>
+          </button>
           <button class="btn" onclick="copyJson()">Copy JSON</button>
         </div>
       </div>
         
-      <div class="grid">
-        <div class="card"><b>Procedures</b>     <div class="muted">${counts.procedure}</div></div>
-        <div class="card"><b>Subroutines</b>    <div class="muted">${counts.subroutine}</div></div>
-        <div class="card"><b>Constants</b>      <div class="muted">${counts.constant}</div></div>
-        <div class="card"><b>Variables</b>      <div class="muted">${counts.variable}</div></div>
-        <div class="card"><b>Data Structures</b><div class="muted">${counts.dataStructure}</div></div>
-        <div class="card"><b>Enumerations</b>   <div class="muted">${counts.enum}</div></div>
-        <div class="card"><b>Files</b>          <div class="muted">${counts.declaredFile}</div></div>
-        <div class="card"><b>TODOs</b>          <div class="muted">${counts.toDos}</div></div>
-        <div class="card"><b>Control Blocks</b> <div class="muted">${counts.controlBlocks}</div></div>
-      </div>
-        
-      ${renderSection('Procedures',      sections.procedures,     (s:any) => s.name)}
-      ${renderSection('Subroutines',     sections.subroutines,    (s:any) => s.name)}
-      ${renderSection('Constants',       sections.constants,      (s:any) => s.name)}
-      ${renderSection('Variables',       sections.variables,      (s:any) => s.name + ' : ' + s.dclType )}
-      ${renderSection('Data Structures', sections.dataStructures, (s:any) => s.name)} 
-      ${renderSection('Enums',           sections.enums,          (s:any) => s.name)} 
-      ${renderSection('Files',           sections.declaredFiles,  (s:any) => s.name)}
-      ${renderSection('To Do Items',     sections.toDos,          (s:any) => s.text)}
+      <div class="layout"> 
+                <!-- LEFT: SUMMARY -->
+        <div class="card">
+          <h2>Summary</h2>
+          <div class="grid">
+            <div>
+              <div class="summary-card-title">
+                <span>Procedures</span>
+                <span class="summary-count">${counts.procedure}</span>
+              </div>
+              <div class="summary-label">dcl-proc (…) end-proc</div>
+            </div>
 
-      <div class="section">
-        <h2>Raw JSON</h2>
-        <pre id="json">${json}</pre>
+            <div>
+              <div class="summary-card-title">
+                <span>Subroutines</span>
+                <span class="summary-count">${counts.subroutine}</span>
+              </div>
+              <div class="summary-label">begsr (…) endsr</div>
+            </div>
+
+            <div>
+              <div class="summary-card-title">
+                <span>Constants</span>
+                <span class="summary-count">${counts.constant}</span>
+              </div>
+              <div class="summary-label">dcl-c</div>
+            </div>
+
+            <div>
+              <div class="summary-card-title">
+                <span>Variables</span>
+                <span class="summary-count">${counts.variable}</span>
+              </div>
+              <div class="summary-label">dcl-s</div>
+            </div>
+
+            <div>
+              <div class="summary-card-title">
+                <span>Data structures</span>
+                <span class="summary-count">${counts.dataStructure}</span>
+              </div>
+              <div class="summary-label">dcl-ds (…) end-ds</div>
+            </div>
+
+            <div>
+              <div class="summary-card-title">
+                <span>Enums</span>
+                <span class="summary-count">${counts.enum}</span>
+              </div>
+              <div class="summary-label">dcl-enum (…) end-enum</div>
+            </div>
+
+            <div>
+              <div class="summary-card-title">
+                <span>Files</span>
+                <span class="summary-count">${counts.declaredFile}</span>
+              </div>
+              <div class="summary-label">dcl-f (PF/LF/DSPF/PRTF)</div>
+            </div>
+
+            <div>
+              <div class="summary-card-title">
+                <span>TODOs</span>
+                <span class="summary-count">${counts.toDos}</span>
+              </div>
+              <div class="summary-label">// TODO comments</div>
+            </div>
+
+            <div>
+              <div class="summary-card-title">
+                <span>Control blocks</span>
+                <span class="summary-count">${counts.controlBlocks}</span>
+              </div>
+              <div class="summary-label">if / select / for / dow / dou / do … </div>
+            </div>
+          </div>
+        </div>
+
+                <!-- RIGHT: SYMBOL LISTS + JSON -->
+        <div>
+          ${renderSection('Procedures',      sections.procedures,     (s:any) => s.name)}
+          ${renderSection('Subroutines',     sections.subroutines,    (s:any) => s.name)}
+          ${renderSection('Constants',       sections.constants,      (s:any) => s.name)}
+          ${renderSection('Variables',       sections.variables,      (s:any) => s.name + ' : ' + s.dclType )}
+          ${renderSection('Data Structures', sections.dataStructures, (s:any) => s.name)} 
+          ${renderSection('Enums',           sections.enums,          (s:any) => s.name)} 
+          ${renderSection('Files',           sections.declaredFiles,  (s:any) => s.name)}
+          ${renderSection('To Do Items',     sections.toDos,          (s:any) => s.text)}
+
+          <div class="section card" style="margin-top: 10px;">
+            <div class="json-title">
+              <h2 style="margin: 0;">Raw JSON</h2>
+              <span class="badge">Full parser output</span>
+            </div>
+            <pre id="json">${json}</pre>
+          </div>
+        </div>
       </div>
 
       <script>
+        const vs = getVsApi();
+
         function getVsApi() {
           return (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
         }
 
         function refreshReport() {
-          const vs = getVsApi();
           if (vs) vs.postMessage({ type: 'refresh' });
         }
 
         function copyJson() {
           const pre = document.getElementById('json');
-          const vs = getVsApi();
           if (vs) {
             vs.postMessage({ type: 'copy' });
           } else {
@@ -584,6 +863,11 @@ function renderReport(doc: RpgDocument): string {
             }
           }
         }
+        
+        function revealLine(line) {
+          if (!vs) return;
+          vs.postMessage({type: 'revealLine', line});
+        }
       </script>
     </body>
   </html>
@@ -596,14 +880,32 @@ function renderSection<T extends RpgSymbol>(
   label: (sel: any) => string
 ): string {
   if (!list.length) return '';
+
   const items = list
-    .map((sel) => `<li>${escapeHtml(label(sel))} <span class="muted">(line ${sel.range.start.line + 1})</span></li>`)
+    .map((sel) => {
+      const labelText = escapeHtml(label(sel));
+      const line = sel.range.start.line + 1;
+      return `
+        <li>
+          <a onclick="revealLine(${sel.range.start.line})">
+            ${labelText}
+          </a>
+          <span class="muted">(line ${line})</span>
+        </li>
+      `;
+    })
     .join('\n');
+
   return `
-  <div class="section card">
-    <h2>${escapeHtml(title)}</h2>
-    <ul>${items}</ul>
-  </div>
+    <details class="section" open>
+      <summary>
+        <span class="section-title">${escapeHtml(title)}</span>
+        <span class="section-count">${list.length} item(s)</span>
+      </summary>
+      <div class="section-body">
+        <ul>${items}</ul>
+      </div>
+    </details>
   `;
 }
 
