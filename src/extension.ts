@@ -119,8 +119,8 @@ export function activate(ctx: vscode.ExtensionContext) {
       ['rpgQuickNavigator.hasActiveRpgEditor', hasRpgEditor]
     ]
     await Promise.all(
-      commands.map(([KeyboardEvent, value]) =>
-        vscode.commands.executeCommand('setContext', KeyboardEvent, value)
+      commands.map(([key, value]) =>
+        vscode.commands.executeCommand('setContext', key, value)
       )
     );
   }
