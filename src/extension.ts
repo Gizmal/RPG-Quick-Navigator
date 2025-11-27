@@ -63,7 +63,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('rpgQuickNavigator.toggleSortOrder', async () => {
       const config = vscode.workspace.getConfiguration('rpgQuickNavigator');
-      const current = config.get<string>('sortOrder') ?? 'chronological';
+      const current = getConfigs().sortOrder;
       const next: SortOrder = current === 'chronological' ? 'alphabetical' : 'chronological';
       const hasWorkspace = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
       const target = hasWorkspace ? 
@@ -78,7 +78,7 @@ export function activate(ctx: vscode.ExtensionContext) {
     vscode.commands.registerCommand('rpgQuickNavigator.toggleSortOrder.chronological', () => vscode.commands.executeCommand('rpgQuickNavigator.toggleSortOrder')),
     vscode.commands.registerCommand('rpgQuickNavigator.toggleGroupByKind', async () => {
       const config = vscode.workspace.getConfiguration('rpgQuickNavigator');
-      const current = getGroupByKind();
+      const current = getConfigs().isGrouped;
       const next = !current;
       const hasWorkspace = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
       const target = hasWorkspace ? 
@@ -97,7 +97,10 @@ export function activate(ctx: vscode.ExtensionContext) {
         provider.refresh();
       }
     }),
-    vscode.window.onDidChangeActiveTextEditor(() => provider.refresh()),
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      void refreshContext();
+      provider.refresh();
+    }),
     vscode.workspace.onDidChangeTextDocument(() => provider.refresh())
   );
   (async () => {
@@ -108,34 +111,48 @@ export function activate(ctx: vscode.ExtensionContext) {
     }
   })();
   async function refreshContext() {
-    const order = getSortOrder();
-    const state = getGroupByKind();
-    await vscode.commands.executeCommand(
-      'setContext', 
-      'rpgQuickNavigator.sortOrder', 
-      order
-    );
-    await vscode.commands.executeCommand(
-      'setContext',
-      'rpgQuickNavigator.groupByKind',
-      state
+    const configs = getConfigs();
+    const hasRpgEditor = hasActiveRpgEditor();
+    const commands: [string, unknown][] = [
+      ['rpgQuickNavigator.sortOrder',          configs.sortOrder],
+      ['rpgQuickNavigator.groupByKind',        configs.isGrouped],
+      ['rpgQuickNavigator.hasActiveRpgEditor', hasRpgEditor]
+    ]
+    await Promise.all(
+      commands.map(([KeyboardEvent, value]) =>
+        vscode.commands.executeCommand('setContext', KeyboardEvent, value)
+      )
     );
   }
 }
 
-//const categories = ['procedure', 'subroutine', 'variable', 'dataStructure', 'toDo'] as const;
 const categories = ['procedure', 'variable', 'declaredFile', 'toDo'] as const;
 type Category = typeof categories[number];
 type SortOrder = 'alphabetical' | 'chronological';
-
-function getSortOrder(): SortOrder {
-  const config = vscode.workspace.getConfiguration('rpgQuickNavigator');
-  return (config.get<SortOrder>('sortOrder') ?? 'chronological');
+interface Configs {
+  sortOrder: SortOrder;
+  isGrouped: boolean;
 }
 
-function getGroupByKind(): boolean {
+function getConfigs(): Configs {
   const config = vscode.workspace.getConfiguration('rpgQuickNavigator');
-  return config.get<boolean>('groupByKind') ?? true;
+  const sortOrder = config.get<SortOrder>('sortOrder') ?? 'chronological';
+  const isGrouped = config.get<boolean>('groupByKind') ?? true;
+  return {sortOrder, isGrouped};
+}
+
+function isRpgLanguageId(languageId: string): boolean {
+  return (
+    languageId === 'rpg' ||
+    languageId === 'rpgle' ||
+    languageId === 'sqlrpgle'
+  );
+}
+
+function hasActiveRpgEditor(): boolean {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return false;
+  return isRpgLanguageId(editor.document.languageId);
 }
 
 class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
@@ -159,9 +176,16 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     if (element instanceof SymbolItem) {
       const sym = element.symbol;
       if (sym.kind === 'dataStructure' || sym.kind === 'enum') {
-        const documentUri = documentCache.uri ? vscode.Uri.parse(documentCache.uri) : undefined;
+        const documentUri = documentCache.uri ? 
+          vscode.Uri.parse(documentCache.uri) : 
+          undefined;
         const childTreeItems: vscode.TreeItem[] = (sym as any).values?.map((memberSymbol: any) => {
-          const label = memberSymbol.name + (memberSymbol.dclType ? ` : ${memberSymbol.dclType}` : (memberSymbol.value ? ` = ${memberSymbol.value}` : ''));
+          const label = memberSymbol.name + 
+            (memberSymbol.dclType ? 
+              ` : ${memberSymbol.dclType}` : 
+              (memberSymbol.value ? 
+                ` = ${memberSymbol.value}` : 
+                ''));
           const childItem = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
           childItem.tooltip = buildSymbolTooltip(memberSymbol); 
           if (documentUri && memberSymbol.range) {
@@ -177,18 +201,23 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       }
     }
     const editor = vscode.window.activeTextEditor;
-    if (!editor) { 
+    let doc: RpgDocument | undefined;
+    let revealUri: vscode.Uri | undefined;
+
+    if (editor && isRpgLanguageId(editor.document.languageId)) {
+      doc = getCachedDocument(editor.document);
+      revealUri = editor.document.uri;
+    } else if (documentCache.doc && documentCache.uri) {
+      doc = documentCache.doc;
+      revealUri = vscode.Uri.parse(documentCache.uri);
+    } else {
       return [new vscode.TreeItem('Open a RPG file to analyze')];
     }
     
-    const doc = getCachedDocument(editor.document);
 
     const groups: Record<Category, RpgSymbol[]> = {
       procedure: [],
-    //  subroutine: [],
-    //  constant: [],
       variable: [],
-    //  dataStructure: [],
       declaredFile: [],
       toDo: []
     };
@@ -230,20 +259,16 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
         
         item.id = key;
         const count = groups[key].length;
-        const order = getSortOrder();
+        const order = getConfigs().sortOrder;
         item.description = `${count} - ${order === 'chronological' ? '1→n' : 'A→Z'}`;
         item.tooltip = new vscode.MarkdownString(
           `**${labelForCategory(key)}:**  \nNumber of items: ${count}  \nSort Order: ${order === 'chronological' ? 'Chronological (1→n)' : 'Alphabetical (A→Z)'}`
         );
         const catIcon: Record<Category, vscode.ThemeIcon> = {
-          procedure: new vscode.ThemeIcon('symbol-method'),
-        //  subroutine: new vscode.ThemeIcon('symbol-method'),
-        //  constant: new vscode.ThemeIcon('symbol-constant'),
-          variable: new vscode.ThemeIcon('symbol-variable'),
-        //  dataStructure: new vscode.ThemeIcon('symbol-structure'),
-        //  enum: new vscode.ThemeIcon('list-ordered'),
+          procedure:    new vscode.ThemeIcon('symbol-method'),
+          variable:     new vscode.ThemeIcon('symbol-variable'),
           declaredFile: new vscode.ThemeIcon('symbol-file'),
-          toDo: new vscode.ThemeIcon('comment')
+          toDo:         new vscode.ThemeIcon('comment')
         };
         item.iconPath = catIcon[key];
         return item;
@@ -252,7 +277,7 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 
     const catId = element.id as Category;
     const list = groups[catId] ?? [];
-    const order = getSortOrder();
+    const order = getConfigs().sortOrder;
     function kindRank(sym: RpgSymbol): number {
       if (catId === 'procedure') {
         if (sym.kind === 'procedure')  return 0;
@@ -283,8 +308,8 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     }  
 
     const sorted = [...list].sort((a, b) => {
-      const groupByKind = getGroupByKind();
-      if (groupByKind) {
+      const isGrouped = getConfigs().isGrouped;
+      if (isGrouped) {
         const rankA = kindRank(a);
         const rankB = kindRank(b);
         if (rankA !== rankB) return rankA - rankB;
@@ -304,7 +329,9 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 
     const items = sorted.map((sym) => {
       const label = labelForSymbol(sym);
-      const collapsibleItemState = (sym.kind === 'dataStructure' || sym.kind === 'enum') ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None;
+      const collapsibleItemState = (sym.kind === 'dataStructure' || sym.kind === 'enum') ? 
+        vscode.TreeItemCollapsibleState.Collapsed : 
+        vscode.TreeItemCollapsibleState.None;
       const item = new SymbolItem(
           sym, 
           label, 
@@ -313,24 +340,20 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       item.id = `${catId}-${(sym as any).name ?? (sym as any).text}-${sym.range.start.line}`;
       
       let symbolIcon: vscode.ThemeIcon;
-      //if      (sym.kind === 'procedure')      symbolIcon = new vscode.ThemeIcon('symbol-method');
       if      (sym.kind === 'procedure')      symbolIcon = new vscode.ThemeIcon('gear');
-      //else if (sym.kind === 'subroutine')     symbolIcon = new vscode.ThemeIcon('symbol-method');
       else if (sym.kind === 'subroutine')     symbolIcon = new vscode.ThemeIcon('note');
       else if (sym.kind === 'constant')       symbolIcon = new vscode.ThemeIcon('symbol-constant');
       else if (sym.kind === 'variable')       symbolIcon = new vscode.ThemeIcon('symbol-variable');
       else if (sym.kind === 'dataStructure')  symbolIcon = new vscode.ThemeIcon('symbol-structure');
-      //else if (sym.kind === 'enum')           symbolIcon = new vscode.ThemeIcon('list-ordered');
-      //else if (sym.kind === 'enum')           symbolIcon = new vscode.ThemeIcon('symbol-enum');
       else if (sym.kind === 'enum')           symbolIcon = new vscode.ThemeIcon('symbol-value');
       else if (sym.kind === 'declaredFile')   symbolIcon = new vscode.ThemeIcon('symbol-file');
-      else                                        symbolIcon = new vscode.ThemeIcon('comment');
+      else                                    symbolIcon = new vscode.ThemeIcon('comment');
 
       item.iconPath = symbolIcon;
       item.command = {
         command: 'rpgQuickNavigator.reveal',
         title: 'Reveal symbol',
-        arguments: [editor.document.uri, sym.range.start.line]
+        arguments: [revealUri, sym.range.start.line]
       };
       item.tooltip = buildSymbolTooltip(sym);
       if (sym.kind === 'variable') {
@@ -357,16 +380,8 @@ function labelForCategory(cat: Category): string {
   switch (cat) {
     case 'procedure':
       return 'Procedures';
-  //  case 'subroutine':
-  //    return 'Subroutines';
-  //  case 'constant':
-  //    return 'Constants';
     case 'variable':
       return 'Variables';
-  //  case 'dataStructure':
-  //    return 'Data Structures';
-  //  case 'enum':
-  //    return 'Enums';
     case 'declaredFile':
       return 'Files';
     case 'toDo':
@@ -377,31 +392,9 @@ function labelForCategory(cat: Category): string {
 }
 
 function labelForSymbol(sym: RpgSymbol): string {
- /* switch (sym.kind) {
-    case 'procedure':
-      return sym.name;
-    case 'subroutine':
-      return sym.name;
-    case 'constant':
-      return sym.name;
-    case 'variable':
-      return sym.name;
-    case 'dataStructure':
-      return sym.name;
-    case 'enum':
-      return sym.name;
-    case 'declaredFile':
-      return sym.name;
-    case 'toDo':
-      return sym.text;
-  } */
- /* switch (sym.kind) {
-    case 'toDo':
-      return sym.text;
-    default:
-      return sym.name;    
-  } */
-  return sym.kind === 'toDo' ? sym.text : (sym as any).name;
+  return sym.kind === 'toDo' ? 
+    sym.text : 
+    (sym as any).name;
 }
 
 async function analyzeCurrent() {
@@ -428,6 +421,16 @@ async function analyzeCurrent() {
       vscode.env.clipboard.writeText(JSON.stringify(doc, null, 2));
       vscode.window.showInformationMessage('Analysis JSON copied to clipboard.');
     }
+
+    if (msg?.type === 'refresh') {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showInformationMessage('RPG Quick Navigator: No active editor to refresh from.');
+        return;
+      }
+      const newDoc = getCachedDocument(editor.document);
+      panel.webview.html = renderReport(newDoc);
+    }
   });
 }
 
@@ -439,97 +442,152 @@ function escapeHtml(s: string) {
   }[c]!));
 }
 
+interface ReportSections {
+  procedures:     Extract<RpgSymbol, {kind: 'procedure'}>[];
+  subroutines:    Extract<RpgSymbol, {kind: 'subroutine'}>[];
+  constants:      Extract<RpgSymbol, {kind: 'constant'}>[];
+  variables:      Extract<RpgSymbol, {kind: 'variable'}>[];
+  dataStructures: Extract<RpgSymbol, {kind: 'dataStructure'}>[];
+  enums:          Extract<RpgSymbol, {kind: 'enum'}>[];
+  declaredFiles:  Extract<RpgSymbol, {kind: 'declaredFile'}>[];
+  toDos:          Extract<RpgSymbol, {kind: 'toDo'}>[];
+}
+
+interface ReportCounts {
+  procedure:     number;
+  subroutine:    number;
+  constant:      number;
+  variable:      number;
+  dataStructure: number;
+  enum:          number;
+  declaredFile:  number;
+  toDo:          number;
+  controlBlocks: number;
+  toDos:         number;
+}
+
+function computeReportData(doc: RpgDocument): {
+  sections: ReportSections;
+  counts:   ReportCounts;
+} {
+  const symbols = doc.symbols;
+  const sections: ReportSections = {
+    procedures:     symbols.filter((s): s is Extract<RpgSymbol, {kind: 'procedure'}>     => s.kind === 'procedure'),
+    subroutines:    symbols.filter((s): s is Extract<RpgSymbol, {kind: 'subroutine'}>    => s.kind === 'subroutine'),
+    constants:      symbols.filter((s): s is Extract<RpgSymbol, {kind: 'constant'}>      => s.kind === 'constant'),
+    variables:      symbols.filter((s): s is Extract<RpgSymbol, {kind: 'variable'}>      => s.kind === 'variable'),
+    dataStructures: symbols.filter((s): s is Extract<RpgSymbol, {kind: 'dataStructure'}> => s.kind === 'dataStructure'),
+    enums:          symbols.filter((s): s is Extract<RpgSymbol, {kind: 'enum'}>          => s.kind === 'enum'),
+    declaredFiles:  symbols.filter((s): s is Extract<RpgSymbol, {kind: 'declaredFile'}>  => s.kind === 'declaredFile'),
+    toDos:          symbols.filter((s): s is Extract<RpgSymbol, {kind: 'toDo'}>          => s.kind === 'toDo'),
+  }
+  const counts: ReportCounts = {
+    procedure:     sections.procedures.length,
+    subroutine:    sections.subroutines.length,
+    constant:      sections.constants.length,
+    variable:      sections.variables.length,
+    dataStructure: sections.dataStructures.length,
+    enum:          sections.enums.length,
+    declaredFile:  sections.declaredFiles.length,
+    toDo:          sections.toDos.length,
+    controlBlocks: doc.metrics.controlBlocks,
+    toDos:         doc.metrics.toDos,
+  }
+  return {sections, counts};
+}
+
 function renderReport(doc: RpgDocument): string {
   const json = escapeHtml(JSON.stringify(doc, null, 2));
-  const sections = groupByKind(doc.symbols);
+  const {sections, counts} = computeReportData(doc);
 
-  const counts = {
-    procedure: sections.procedure.length,
-  //  subroutine: sections.subroutine.length,
-  //  constant: sections.constant.length,
-    variable: sections.variable.length,
-  //  dataStructure: sections.dataStructure.length,
-  //  enum: sections.enum.length,
-    declaredFile: sections.declaredFile.length,
-    toDo: sections.toDo.length,
-    controlBlocks: doc.metrics.controlBlocks,
-    toDos: doc.metrics.toDos
-  }
-
-  return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RPG Analysis</title>
-    <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 16px; }
-      h1 { margin: 0 0 12px; font-size: 18px; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
-      .card { padding: 12px; border: 1px solid #cccccc; border-radius: 8px; box-shadow: 0 1px 3px #22222280; }
-      .muted { color: #666666; font-size: 12px; }
-      .btn { display: inline-block; border: 1px solid #888888; border-radius: 6px; padding: 6px 10px; cursor: pointer; user-select: none; background: #007acc; color: white; }
-      pre { background: #222222; color: #cccccc; padding: 12px; border-radius: 8px; overflow: auto; }
-      ul { margin: 8px 0 0 20px; }
-      .section { margin-top: 10px; }
-      .title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    </style>
-  </head>
-  <body>
-    <div class="title">
-      <h1>RPG Analysis</h1>
-      <button class="btn" onclick="copyJson()">Copy JSON</button>
+  return `
+  <!DOCTYPE html>
+  <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>RPG Analysis</title>
+      <style>
+        body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 16px; }
+        h1 { margin: 0 0 12px; font-size: 18px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .card { padding: 12px; border: 1px solid #cccccc; border-radius: 4px; box-shadow: 0 1px 3px #22222280; }
+        .muted { color: #666666; font-size: 12px; }
+        .btn { display: inline-block; border: 1px solid #888888; border-radius: 3px; padding: 6px 10px; cursor: pointer; user-select: none; background: #007acc; color: white; }
+        pre { background: #222222; color: #cccccc; padding: 12px; border-radius: 4px; overflow: auto; }
+        ul { margin: 8px 0 0 20px; }
+        .section { margin-top: 10px; }
+        .title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      </style>
+    </head>
+    <body>
+      <div class="title">
+        <h1>RPG Analysis</h1>
+        <div>
+          <button class="btn" onclick="refreshReport()">Refresh</button>
+          <button class="btn" onclick="copyJson()">Copy JSON</button>
+        </div>
       </div>
-      
+        
       <div class="grid">
-        <div class="card"><b>Procedures</b><div class="muted">${counts.procedure}</div></div>
-        <div class="card"><b>Subroutines</b><div class="muted">${'' /* counts.subroutine */}</div></div>
-        <div class="card"><b>Constants</b><div class="muted">${'' /* counts.constant */}</div></div>
-        <div class="card"><b>Variables</b><div class="muted">${counts.variable}</div></div>
-        <div class="card"><b>Data Structures</b><div class="muted">${'' /* counts.dataStructure */}</div></div>
-        <div class="card"><b>Data Structures</b><div class="muted">${'' /* counts.enum */}</div></div>
-        <div class="card"><b>Files</b><div class="muted">${counts.declaredFile}</div></div>
-        <div class="card"><b>TODOs</b><div class="muted">${counts.toDos}</div></div>
-        <div class="card"><b>Control Blocks</b><div class="muted">${counts.controlBlocks}</div></div>
+        <div class="card"><b>Procedures</b>     <div class="muted">${counts.procedure}</div></div>
+        <div class="card"><b>Subroutines</b>    <div class="muted">${counts.subroutine}</div></div>
+        <div class="card"><b>Constants</b>      <div class="muted">${counts.constant}</div></div>
+        <div class="card"><b>Variables</b>      <div class="muted">${counts.variable}</div></div>
+        <div class="card"><b>Data Structures</b><div class="muted">${counts.dataStructure}</div></div>
+        <div class="card"><b>Enumerations</b>   <div class="muted">${counts.enum}</div></div>
+        <div class="card"><b>Files</b>          <div class="muted">${counts.declaredFile}</div></div>
+        <div class="card"><b>TODOs</b>          <div class="muted">${counts.toDos}</div></div>
+        <div class="card"><b>Control Blocks</b> <div class="muted">${counts.controlBlocks}</div></div>
       </div>
-      
-      ${renderSection('Procedures', sections.procedure, (s:any) => s.name)}
-      ${'' /* renderSection('Subroutines', sections.subroutine, (s:any) => s.name) */}
-      ${'' /* renderSection('Constants', sections.constant, (s:any) => s.name) */}
-      ${renderSection('Variables', sections.variable, (s:any) => s.name /* + ' : ' + s.dclType */)}
-      ${'' /* renderSection('Data Structures', sections.dataStructure, (s:any) => s.name) */} 
-      ${'' /* renderSection('Enums', sections.enum, (s:any) => s.name) */} 
-      ${renderSection('Files', sections.declaredFile, (s:any) => s.name)}
-      ${renderSection('To Do Items', sections.toDo, (s:any) => s.text)}
+        
+      ${renderSection('Procedures',      sections.procedures,     (s:any) => s.name)}
+      ${renderSection('Subroutines',     sections.subroutines,    (s:any) => s.name)}
+      ${renderSection('Constants',       sections.constants,      (s:any) => s.name)}
+      ${renderSection('Variables',       sections.variables,      (s:any) => s.name + ' : ' + s.dclType )}
+      ${renderSection('Data Structures', sections.dataStructures, (s:any) => s.name)} 
+      ${renderSection('Enums',           sections.enums,          (s:any) => s.name)} 
+      ${renderSection('Files',           sections.declaredFiles,  (s:any) => s.name)}
+      ${renderSection('To Do Items',     sections.toDos,          (s:any) => s.text)}
 
       <div class="section">
         <h2>Raw JSON</h2>
         <pre id="json">${json}</pre>
       </div>
 
-    <script>
-      function copyJson() {
-        const pre = document.getElementById('json');
-        const vs = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
-        if (vs) {
-          vs.postMessage({ type: 'copy' });
-        } else {
-          const r = document.createRange();
-          r.selectNodeContents(pre);
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(r);
-          try {
-            document.execCommand('copy');
-          } finally {
-            sel.removeAllRanges();
+      <script>
+        function getVsApi() {
+          return (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+        }
+
+        function refreshReport() {
+          const vs = getVsApi();
+          if (vs) vs.postMessage({ type: 'refresh' });
+        }
+
+        function copyJson() {
+          const pre = document.getElementById('json');
+          const vs = getVsApi();
+          if (vs) {
+            vs.postMessage({ type: 'copy' });
+          } else {
+            const r = document.createRange();
+            r.selectNodeContents(pre);
+            const select = window.getSelection();
+            select.removeAllRanges();
+            select.addRange(r);
+            try {
+              document.execCommand('copy');
+            } finally {
+              select.removeAllRanges();
+            }
           }
         }
-      }
-    </script>
-  </body>
-</html>`;
+      </script>
+    </body>
+  </html>
+  `;
 } 
 
 function renderSection<T extends RpgSymbol>(
@@ -541,23 +599,12 @@ function renderSection<T extends RpgSymbol>(
   const items = list
     .map((sel) => `<li>${escapeHtml(label(sel))} <span class="muted">(line ${sel.range.start.line + 1})</span></li>`)
     .join('\n');
-  return `<div class="section card">
+  return `
+  <div class="section card">
     <h2>${escapeHtml(title)}</h2>
     <ul>${items}</ul>
-  </div>`;
-}
-
-function groupByKind(symbols: RpgSymbol[]): Record<Category, RpgSymbol[]> {
-  return {
-    procedure: symbols.filter(s => s.kind === 'procedure'),
-  //  subroutine: symbols.filter(s => s.kind === 'subroutine'),
-  //  constant: symbols.filter(s => s.kind === 'constant'),
-    variable: symbols.filter(s => s.kind === 'variable'),
-  //  dataStructure: symbols.filter(s => s.kind === 'dataStructure'),
-  //  enum: symbols.filter(s => s.kind === 'enum'),
-    declaredFile: symbols.filter(s => s.kind === 'declaredFile'),
-    toDo: symbols.filter(s => s.kind === 'toDo'),
-  };
+  </div>
+  `;
 }
 
 function buildSymbolTooltip(sym: RpgSymbol): vscode.MarkdownString {
