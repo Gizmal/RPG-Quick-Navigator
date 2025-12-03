@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { parse } from './parser/parse';
-import { RpgDocument, RpgSymbol } from './parser/ast';
+import { RpgDocument, RpgSymbol, ScopeInfo } from './parser/ast';
 
 // icon: https://www.flaticon.com/fr/icones-gratuites/revision-du-code
 
@@ -28,20 +28,59 @@ export function activate(ctx: vscode.ExtensionContext) {
   for (const lang of ['rpg', 'rpgle', 'sqlrpgle']) {
     ctx.subscriptions.push(
       vscode.languages.registerHoverProvider(lang, {
-        provideHover(document, position) {
+        provideHover(document, position, _token) {
           const wordRange = document.getWordRangeAtPosition(position);
           if (!wordRange) return;
+
           const word = document.getText(wordRange);
-          
           const doc = getCachedDocument(document);
           
-          const sym = doc.symbols.find(s => {
-            if (s.kind === 'toDo') return s.text === word;
-            return 'name' in s && s.name === word;
-        });
-          if (!sym) return; 
-          const md = new vscode.Hover(buildSymbolTooltip(sym));
-          return md;
+        //   const sym = doc.symbols.find(s => {
+        //     if (s.kind === 'toDo') return s.text === word;
+        //     return 'name' in s && s.name === word;
+        // });
+        //   if (!sym) return; 
+        //   const md = new vscode.Hover(buildSymbolTooltip(sym));
+        //   return md;
+          const toDoSym = doc.symbols.find(s =>
+            s.kind === 'toDo' &&
+            s.range.start.line === position.line &&
+            s.text.toLowerCase().includes(word.toLowerCase())
+          );
+          if (toDoSym) {
+            return new vscode.Hover(buildSymbolTooltip(toDoSym));
+          }  
+
+          const namedSym = doc.symbols.filter(s =>
+            s.kind !== 'toDo' && 'name' in s && s.name === word
+          );
+          
+          if (!namedSym.length) return;
+
+          const currentProc = getCurrentProcedure(doc, position);
+
+          let sym: RpgSymbol | undefined;
+
+          if (currentProc) {
+            sym = namedSym.find(s => 
+              s.reach.scopeKind === 'procedure' &&
+              s.reach.ownerName === currentProc.name
+            );
+          }
+
+          if (!sym) {
+            sym = namedSym.find(s => s.reach.scopeKind === 'global');
+          }
+
+          if (!sym) {
+            sym = namedSym[0];
+          }
+
+          if (sym) {
+            return new vscode.Hover(buildSymbolTooltip(sym));
+          }
+
+          return;
         }
       })
     );
@@ -286,12 +325,12 @@ class RpgTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
       }
       if (catId === 'variable') {
         switch (sym.kind) {
-          case 'constant':      return 0;
-          case 'enum':          return 1;
-          case 'itemEnum':      return 2;
-          case 'variable':      return 3;
-          case 'dataStructure': return 4;
-          case 'itemDS':        return 5;
+          case 'variable':      return 0;
+          case 'dataStructure': return 1;
+          case 'itemDS':        return 2;
+          case 'constant':      return 3;
+          case 'enum':          return 4;
+          case 'itemEnum':      return 5;
         default:                return 6;
         }
       }
@@ -403,8 +442,11 @@ async function analyzeCurrent() {
     vscode.window.showInformationMessage('RPG Quick Navigator: No active editor.');
     return;
   }
+
+  const sourceUri = editor.document.uri;
   const doc = getCachedDocument(editor.document);
   const fileName = editor.document.uri.fsPath.split(/[/\\]/).pop() ?? editor.document.fileName;
+
   const panel = vscode.window.createWebviewPanel(
     'rpgReport',
     `RPG Analysis. ${fileName}`,
@@ -416,35 +458,36 @@ async function analyzeCurrent() {
 
   panel.webview.html = renderReport(doc);
 
-  panel.webview.onDidReceiveMessage((msg) => {
+  panel.webview.onDidReceiveMessage(async (msg) => {
     if (msg?.type === 'copy') {
       vscode.env.clipboard.writeText(JSON.stringify(doc, null, 2));
       vscode.window.showInformationMessage('Analysis JSON copied to clipboard.');
     }
 
     if (msg?.type === 'refresh') {
-      //const editor = vscode.window.activeTextEditor;
       if (!editor) {
         vscode.window.showInformationMessage('RPG Quick Navigator: No active editor to refresh from.');
         return;
       }
-      const newDoc = getCachedDocument(editor.document);
+      const textDoc = await vscode.workspace.openTextDocument(sourceUri);
+      const newDoc = getCachedDocument(textDoc);
       panel.webview.html = renderReport(newDoc);
     }
 
     if (msg?.type === 'revealLine') {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showInformationMessage('RPG Quick Navigator: No active editor to reveal in.');
-        return;
-      }
       const line = typeof msg.line === 'number' ?
         msg.line :
         0;
-      void vscode.commands.executeCommand('revealLine', {
+      const textDoc = await vscode.workspace.openTextDocument(sourceUri);
+      await vscode.window.showTextDocument(textDoc, {
+        selection: new vscode.Range(line, 0, line, 0),
+        viewColumn: vscode.ViewColumn.One,
+        preserveFocus: false,
+      })
+      /*void vscode.commands.executeCommand('revealLine', {
         lineNumber: line,
         at: 'center'
-      });
+      });*/
     }
   });
 }
@@ -529,7 +572,7 @@ function renderReport(doc: RpgDocument): string {
           --bg-card: #252525;
           --border: #3c3c3c;
           --text: #f3f3f3;
-          --counts: #ababab;
+          --counts: #bbbbbb;
           --muted: #9e9e9e;
           --accent: #007acc;
           --accent-soft: #007acc40;
@@ -623,7 +666,7 @@ function renderReport(doc: RpgDocument): string {
           font-weight: 600;
         }
         .summary-count {
-          color: var(--counts)
+          color: var(--counts);
           font-weight: 700;
           font-size: 16px;
         }
@@ -658,13 +701,13 @@ function renderReport(doc: RpgDocument): string {
           justify-content: space-between;
         }
         details.section summary::before {
-          content: "▸";
+          content: "+"; <!-- "˃"; -->
           margin-right: 6px;
           font-size: 20px;
           opacity: 0.75;
         }
         details.section[open] summary::before {
-          content: "▾";
+          content: "-"; <!-- "˅"; -->
         }
         details.section summary::-webkit-details-marker {
           display: none;
@@ -686,6 +729,8 @@ function renderReport(doc: RpgDocument): string {
         li {
           margin: 2px 0;
           font-size: 12px;
+          font-family: Menlo, Consolas, monospace;
+          white-space: pre;
         }
         li a {
           color: inherit;
@@ -816,14 +861,96 @@ function renderReport(doc: RpgDocument): string {
 
                 <!-- RIGHT: SYMBOL LISTS + JSON -->
         <div>
-          ${renderSection('Procedures',      sections.procedures,     (s:any) => s.name)}
-          ${renderSection('Subroutines',     sections.subroutines,    (s:any) => s.name)}
-          ${renderSection('Constants',       sections.constants,      (s:any) => s.name)}
-          ${renderSection('Variables',       sections.variables,      (s:any) => s.name + ' : ' + s.dclType )}
-          ${renderSection('Data Structures', sections.dataStructures, (s:any) => s.name)} 
-          ${renderSection('Enums',           sections.enums,          (s:any) => s.name)} 
-          ${renderSection('Files',           sections.declaredFiles,  (s:any) => s.name)}
-          ${renderSection('To Do Items',     sections.toDos,          (s:any) => s.text)}
+          ${renderSection(
+            'Procedures',      
+            sections.procedures,     
+            (s:any) => {
+              const scope:    string = s.reach.scopeKind === 'global' ? 'global' : s.reach.ownerName ?? '?';
+              const name:     string = padRight(s.name ?? '', 30);
+              const isExport: string = s.isExport ? ' and exported' : '';
+              const flags:    string = padRight('[' + scope.trim() + isExport + ']', 43);
+              return `${name} ${flags}`;
+            }
+          )}
+          ${renderSection(
+            'Subroutines',     
+            sections.subroutines,    
+            (s:any) => {
+              const scope:    string = padRight(s.reach.scopeKind === 'global' ? 'global' : s.reach.ownerName ?? '?', 30);
+              const name:     string = padRight(s.name ?? '', 30);
+              const flags:    string = padRight('[' + scope.trim() + ']', 30);
+              return `${name} ${flags}`;
+            }
+          )}
+          ${renderSection(
+            'Constants',       
+            sections.constants,      
+            (s:any) => {
+              const scope:    string = padRight(s.reach.scopeKind === 'global' ? 'global' : s.reach.ownerName ?? '?', 30);
+              const name:     string = padRight(s.name ?? '', 30);
+              const value:    string = padRight(s.value ? `= ${s.value}` : '', 40);
+              const flags:    string = padRight('[' + scope.trim() + ']', 20);
+              return `${name} ${value} ${flags}`;
+            }
+          )}
+          ${renderSection(
+            'Variables',       
+            sections.variables,      
+            (s:any) => {
+              const scope:    string = padRight(s.reach.scopeKind === 'global' ? 'global' : s.reach.ownerName ?? '?', 30);
+              const name:     string = padRight(s.name ?? '', 30);
+              let type:       string = s.dclType ?? '';
+              if (s.isTab && s.tabDim) {
+                type += ` dim(${s.tabDim})`;
+              }
+              type = padRight(type, 40);
+              const flags:    string = padRight('[' + scope.trim() + ']', 20);
+              return `${name} ${type} ${flags}`;
+            }
+          )}
+          ${renderSection(
+            'Data Structures', 
+            sections.dataStructures, 
+            (s:any) => {
+              const scope:    string = padRight(s.reach.scopeKind === 'global' ? 'global' : s.reach.ownerName ?? '?', 30);
+              const name:     string = padRight(s.name ?? '', 30);
+              const opts:     string = padRight(s.options ?? '', 40);
+              const flags:    string = padRight('[' + scope.trim() + ']', 20);
+              return `${name} ${opts} ${flags}`;
+            }
+          )} 
+          ${renderSection(
+            'Enums',           
+            sections.enums,          
+            (s:any) => {
+              const scope:    string = padRight(s.reach.scopeKind === 'global' ? 'global' : s.reach.ownerName ?? '?', 30);
+              const name:     string = padRight(s.name ?? '', 30);
+              const opts:     string = padRight(s.options ?? '', 40);
+              const flags:    string = padRight('[' + scope.trim() + ']', 20);
+              return `${name} ${opts} ${flags}`;
+            }
+          )} 
+          ${renderSection(
+            'Files',           
+            sections.declaredFiles,  
+            (s:any) => {
+              const scope:    string = padRight(s.reach.scopeKind === 'global' ? 'global' : s.reach.ownerName ?? '?', 30);
+              const name:     string = padRight(s.name ?? '', 30);
+              const opts:     string = padRight(s.fileOptions ?? '', 40);
+              const flags:    string = padRight('[' + scope.trim() + ']', 20);
+              return `${name} ${opts} ${flags}`;
+            }
+          )}
+          ${renderSection(
+            'To Do Items',     
+            sections.toDos,          
+            (s:any) => {
+              const scope:    string = padRight('[' + s.reach.scopeKind === 'global' ? 'global' : s.reach.ownerName ?? '?' + ']', 30);
+              const flags:    string = padRight('[' + scope.trim() + ']', 20); 
+              const text:     string = padRight(s.text, 120);
+              return `${flags} ${text}`;
+            }
+          )}
 
           <div class="section card" style="margin-top: 10px;">
             <div class="json-title">
@@ -883,12 +1010,12 @@ function renderSection<T extends RpgSymbol>(
 
   const items = list
     .map((sel) => {
-      const labelText = escapeHtml(label(sel));
+      const labelText = label(sel);
       const line = sel.range.start.line + 1;
       return `
         <li>
           <a onclick="revealLine(${sel.range.start.line})">
-            ${labelText}
+            ${escapeHtml(labelText)}
           </a>
           <span class="muted">(line ${line})</span>
         </li>
@@ -908,6 +1035,30 @@ function renderSection<T extends RpgSymbol>(
     </details>
   `;
 }
+
+function padRight(text: string, width: number): string {
+  if (text.length > width - 2) {
+    return text.substring(0, width - 2) + '… ';
+  }
+  return text + ' '.repeat(width - text.length);
+}
+
+function getCurrentProcedure(
+  doc: RpgDocument, 
+  position: vscode.Position
+): 
+Extract<RpgSymbol, {kind: 'procedure'}> | undefined {
+  const procedures = doc.symbols.filter(
+    (s): s is Extract<RpgSymbol, {kind: 'procedure'}> => s.kind === 'procedure' &&
+    s.range.start.line <= position.line
+  );
+
+  if (!procedures.length) return undefined;
+
+  procedures.sort((a, b) => a.range.start.line - b.range.start.line);
+  return procedures[procedures.length - 1];
+}
+
 
 function buildSymbolTooltip(sym: RpgSymbol): vscode.MarkdownString {
   const md = new vscode.MarkdownString();
@@ -956,8 +1107,24 @@ function buildSymbolTooltip(sym: RpgSymbol): vscode.MarkdownString {
       md.appendMarkdown(`**Undefined**  \n`);
       break;
   }
+  md.appendMarkdown(`Scope: ${formatScope(sym.reach)}  \n`);
   md.appendMarkdown(`Defined at line ${sym.range.start.line + 1}  \n`);
   return md;
+
+  function formatScope(reach: ScopeInfo): string {
+    switch (reach.scopeKind) {
+      case 'global':
+        return 'global';
+      case 'procedure':
+        return `procedure _${reach.ownerName?? '?'}_`;
+      case 'dataStructure':
+        return `data structure _${reach.ownerName?? '?'}_`;
+      case 'enum':
+        return `enum _${reach.ownerName?? '?'}_`;
+      default:
+        return reach.ownerName?? 'unknown';
+    }
+  }
 }
 
 export function deactivate() {}
