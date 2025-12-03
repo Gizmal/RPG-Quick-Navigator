@@ -1,4 +1,7 @@
 import {
+  Range,
+  ScopeKind,
+  ScopeInfo,
   RpgDocument,
   RpgSymbol,
   Procedure,
@@ -26,111 +29,209 @@ const ENDENUM_RE       = /^\s*end-enum\b/i;
 const DSENUMITEM_RE    = /^\s*([a-z][a-z0-9_]*)\s+([^;]+);/i;
 const TABDIM_RE        = /dim\s*\(\s*([^\)]+)\s*\)/i;
 const DECLAREDFILE_RE  = /^\s*dcl-f\s+([a-z][a-z0-9_]*)(?:\s+([^;]+))?;/i;
-const TODO_RE          = /\/\/\s*to\s*do\s*:?(.*)$/i;
+const TODO_RE          = /^\s*to\s*do\s*:?(.*)$/i;
 const CONTROL_RE       = /^\s*(if|elseif|else|select|when|other|for|dow|do)\b/i;
 // toDo: detection of read/write/chain/exfmt files for PF/PRTF/DSPF
 
 export function parse(text: string): RpgDocument {
-  const lines = text.split(/\r?\n/);
+  interface SplittedLine {
+      code:    string;
+      comment: string;
+    }
+  
   const symbols: RpgSymbol[] = [];
+  let currentScope: ScopeInfo = { 
+    scopeKind: 'global', 
+    ownerName: undefined 
+  };
+
+  const lines = text.split(/\r?\n/);
   let controlBlocks = 0;
-
+  let execRegex: RegExpExecArray | null;
+  
   for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-    const line = lines[lineNum] ?? '';
+    const currentLine: SplittedLine = splitRpgLine(lines[lineNum] ?? '');
 
-    const mProc = PROC_RE.exec(line);
-    if (mProc) {
-      const procName: string = mProc[1]!;
-      const procOptions: boolean = ((mProc[2]?.trim() ?? '').toLowerCase() === 'export');
-      symbols.push(makeProc(procName, procOptions, lineNum, line.length));
+    // ----- PROC / END-PROC -------------------------
+    execRegex = PROC_RE.exec(currentLine.code);
+    if (execRegex) {
+      const procName:     string  = execRegex[1]!;
+      const procIsExport: boolean = ((execRegex[2]?.trim() ?? '').toLowerCase().includes('export'));
+      symbols.push(makeProc(
+        procName, 
+        procIsExport, 
+        lineNum, 
+        currentLine.code.length
+      ));
+      // local scope
+      currentScope = { 
+        scopeKind: 'procedure', 
+        ownerName: procName 
+      };
+      continue;
     }
 
-    if (ENDPROC_RE.test(line)) {
-      // later
+    if (ENDPROC_RE.test(currentLine.code)) {
+      // back to global scope
+      currentScope = { 
+        scopeKind: 'global', 
+        ownerName: undefined 
+      };
+      continue;
     }
 
-    const mSubr = BEGSR_RE.exec(line);
-    if (mSubr) {
-      const subrName: string = mSubr[1]!;
-      symbols.push(makeSubr(subrName, lineNum, line.length));
+    // ----- BEGSR / ENDSR -------------------------
+    execRegex = BEGSR_RE.exec(currentLine.code);
+    if (execRegex) {
+      const subrName: string = execRegex[1]!;
+      symbols.push(makeSubr(
+        subrName, 
+        lineNum, 
+        currentLine.code.length, 
+        currentScope
+      ));
+      // no scope change
     }
 
-    if (ENDSR_RE.test(line)) {
-      // later
+    if (ENDSR_RE.test(currentLine.code)) {
+      // no scope change
     }
 
-    const mConst = CONST_RE.exec(line);
-    if (mConst) {
-      const constName = mConst[1]!;
-      const constValue = mConst[2]?.trim() ?? '';  
-      symbols.push(makeConst(constName, constValue, lineNum, line.length));
+    // ----- DCL-C -------------------------
+    execRegex = CONST_RE.exec(currentLine.code);
+    if (execRegex) {
+      const constName  = execRegex[1]!;
+      const constValue = execRegex[2]?.trim() ?? '';  
+      symbols.push(makeConst(
+        constName, 
+        constValue, 
+        lineNum, 
+        currentLine.code.length, 
+        currentScope
+      ));
     }
 
-    const mVar = VAR_RE.exec(line);
-    if (mVar) {
-      const varName: string = mVar[1]!;
-      const varType: string = mVar[2]!.trim();
+    // ----- DCL-S -------------------------
+    execRegex = VAR_RE.exec(currentLine.code);
+    if (execRegex) {
+      const varName: string = execRegex[1]!;
+      const varType: string = execRegex[2]!.trim().toLowerCase();
       const varTab = extractTab(varType);
-      const varIsTab: boolean = varTab.isTab;
-      const varTabDim: string = varTab.tabDim;
-      symbols.push(makeVar(varName, varType, varIsTab, varTabDim, lineNum, line.length));
+      symbols.push(makeVar(
+        varName, 
+        varType, 
+        varTab.isTab, 
+        varTab.tabDim, 
+        lineNum, 
+        currentLine.code.length, 
+        currentScope
+      ));
     }
 
-    const mDs = DS_RE.exec(line);
-    if (mDs) {
-      const dsName: string = mDs[1]!;
-      const dsOptions: string = mDs[2]?.trim() ?? '';
-      const dsContent: string[] = extractContent(lineNum, lines, ENDDS_RE);
-      const dsItem: ItemDS[] = parseItemsForDS(DSENUMITEM_RE, dsContent, lineNum);
+    // ----- DCL-DS / END-DS -------------------------
+    execRegex = DS_RE.exec(currentLine.code);
+    if (execRegex) {
+      const dsName:    string = execRegex[1]!;
+      const dsOptions: string = (execRegex[2]?.trim() ?? '').toLowerCase();
+      const dsContent: string[] = extractContent(
+        lineNum, 
+        lines, 
+        ENDDS_RE
+      );
+      const dsItem: ItemDS[] = parseItemsForDS(
+        DSENUMITEM_RE, 
+        dsContent, 
+        lineNum, 
+        dsName
+      );
       const dsDim = extractTab(dsOptions);
-      const dsIsTab: boolean = dsDim.isTab;
-      const dsTabDim: string = dsDim.tabDim;
-      symbols.push(makeDS(dsName, dsOptions, dsItem, dsIsTab, dsTabDim, lineNum, line.length));
+      symbols.push(makeDS(
+        dsName, 
+        dsOptions, 
+        dsItem, 
+        dsDim.isTab, 
+        dsDim.tabDim, 
+        lineNum, 
+        currentLine.code.length, 
+        currentScope
+      ));
       symbols.push(...dsItem);
     }
 
-    if (ENDDS_RE.test(line)) {
-      // later
+    if (ENDDS_RE.test(currentLine.code)) {
+      // ø
     }
 
-    const mEnum = ENUM_RE.exec(line);
-    if (mEnum) {
-      const enumName: string = mEnum[1]!;
-      const enumOptions: string = mEnum[2]?.trim() ?? '';
-      const enumContent: string[] = extractContent(lineNum, lines, ENDENUM_RE);
-      const enumItem: ItemEnum[] = parseItemsForEnum(DSENUMITEM_RE, enumContent, lineNum);
-      symbols.push(makeEnum(enumName, enumOptions, enumItem, lineNum, line.length));
+    // ----- DCL-ENUM / END-ENUM -------------------------
+    execRegex = ENUM_RE.exec(currentLine.code);
+    if (execRegex) {
+      const enumName:    string = execRegex[1]!;
+      const enumOptions: string = (execRegex[2]?.trim() ?? '').toLowerCase();
+      const enumContent: string[] = extractContent(
+        lineNum, 
+        lines, 
+        ENDENUM_RE
+      );
+      const enumItem: ItemEnum[] = parseItemsForEnum(
+        DSENUMITEM_RE, 
+        enumContent, 
+        lineNum,
+        enumName
+      );
+      symbols.push(makeEnum(
+        enumName, 
+        enumOptions, 
+        enumItem, 
+        lineNum, 
+        currentLine.code.length, 
+        currentScope
+      ));
       symbols.push(...enumItem);
     }
 
-    if (ENDENUM_RE.test(line)) {
-      // later
+    if (ENDENUM_RE.test(currentLine.code)) {
+      // ø
     }
 
-    const mDeclaredFile = DECLAREDFILE_RE.exec(line);
-    if (mDeclaredFile) {
-      const fileName: string = mDeclaredFile[1]!;
-      const fileOptions: string = mDeclaredFile[2]!;
-      let fileType: string = fileOptions.toLowerCase().trim();
-      if (fileType.includes('workstn')) {
+    // ----- DCL-F -------------------------
+    execRegex = DECLAREDFILE_RE.exec(currentLine.code);
+    if (execRegex) {
+      const fileName:    string = execRegex[1]!;
+      const fileOptions: string = (execRegex[2]!.trim() ?? '');
+      let   fileType:    string;
+      if (fileOptions.toLowerCase().includes('workstn')) {
         fileType = 'Display file (DSPF)';
       }
-      else if (fileType.includes('printer')) {
+      else if (fileOptions.toLowerCase().includes('printer')) {
         fileType = 'Printer file (PRTF)';
       }
       else {
         fileType = 'Data file (PF/LF)';
       }
-      symbols.push(makeDeclaredFile(fileName, fileType, fileOptions, lineNum, line.length));
+      symbols.push(makeDeclaredFile(
+        fileName, 
+        fileType, 
+        fileOptions, 
+        lineNum, 
+        currentLine.code.length, 
+        currentScope
+      ));
     }
 
-    const mToDo = TODO_RE.exec(line);
-    if (mToDo) {
-      const toDoText: string = mToDo[1]!.trim();
-      symbols.push(makeToDo(toDoText, lineNum, line.length));
+    // ----- // TO DO : -------------------------
+    execRegex = TODO_RE.exec(currentLine.comment);
+    if (execRegex) {
+      const toDoText: string = execRegex[1]!.trim();
+      symbols.push(makeToDo(
+        toDoText, 
+        lineNum, 
+        currentLine.comment.length, 
+        currentScope
+      ));
     }
 
-    if (CONTROL_RE.test(line)) {
+    // // ----- Controls -------------------------
+    if (CONTROL_RE.test(currentLine.code)) {
       controlBlocks++;
     }
   }
@@ -142,53 +243,121 @@ export function parse(text: string): RpgDocument {
       toDos: symbols.filter(s => s.kind === 'toDo').length
     }
   };
+  
+  function splitRpgLine(line: string): SplittedLine {
+    let inSingleQuote: boolean = false;
+    let inDoubleQuote: boolean = false;
+
+    for (let i = 0; i < line.length - 1; i++) {
+      const character = line[i];
+      const next = line[i + 1];
+
+      if (character === "'" && !inDoubleQuote) {
+        inSingleQuote = !inSingleQuote;
+      } else if (character === '"' && !inSingleQuote) {
+        inDoubleQuote = !inDoubleQuote;
+      } else if (!inSingleQuote && !inDoubleQuote && character === '/' && next === '/') {
+        return {
+          code: line.slice(0, i),
+          comment: line.slice(i + 2),
+        };
+      }
+    }
+    return {
+      code: line,
+      comment: '',
+    }
+  }
 }
 
-function makeRange(line: number, length: number) {
+function makeRange(
+  line:   number, 
+  length: number
+): Range {
   return {
     start: { line, character: 0 },
-    end: { line, character: length }
+    end:   { line, character: length }
   };
 }
 
-function makeProc(name: string, isExport: boolean, line: number, length: number): Procedure {
+function makeProc(
+  name:     string, 
+  isExport: boolean, 
+  line:     number, 
+  length:   number
+): Procedure {
   return {
     kind: 'procedure',
     name,
     isExport,
-    range: makeRange(line, length)
+    range: makeRange(line, length),
+    reach: {
+      scopeKind: 'global',
+      ownerName: undefined,
+    }
   };
 }
 
-function makeSubr(name: string, line: number, length: number): Subroutine {
+function makeSubr(
+  name:   string, 
+  line:   number, 
+  length: number, 
+  scope:  ScopeInfo
+): Subroutine {
   return {
     kind: 'subroutine',
     name,
-    range: makeRange(line, length)
+    range: makeRange(line, length),
+    reach: { ...scope }
   };
 }
 
-function makeConst(name: string, value: string, line: number, length: number): Constant {
+function makeConst(
+  name:   string, 
+  value:  string, 
+  line:   number, 
+  length: number, 
+  scope:  ScopeInfo
+): Constant {
   return {
     kind: 'constant',
     name,
     value,
-    range: makeRange(line, length)
+    range: makeRange(line, length),
+    reach: { ...scope }
   };
 }
 
-function makeVar(name: string, dclType: string, isTab: boolean, tabDim: string, line: number, length: number): Variable {
+function makeVar(
+  name:    string, 
+  dclType: string, 
+  isTab:   boolean, 
+  tabDim:  string, 
+  line:    number, 
+  length:  number, 
+  scope:   ScopeInfo
+): Variable {
   return {
     kind: 'variable',
     name,
     dclType,
     isTab,
     tabDim,
-    range: makeRange(line, length)
+    range: makeRange(line, length),
+    reach: { ...scope }
   };
 }
 
-function makeDS(name: string, options: string, values: ItemDS[], isTab: boolean, tabDim: string, line: number, length: number): DataStructure {
+function makeDS(
+  name:    string, 
+  options: string, 
+  values:  ItemDS[], 
+  isTab:   boolean, 
+  tabDim:  string, 
+  line:    number, 
+  length:  number, 
+  scope:   ScopeInfo
+): DataStructure {
   return {
     kind: 'dataStructure',
     name,
@@ -196,39 +365,66 @@ function makeDS(name: string, options: string, values: ItemDS[], isTab: boolean,
     values,
     isTab,
     tabDim,
-    range: makeRange(line, length)
+    range: makeRange(line, length),
+    reach: { ...scope }
   };
 }
 
-function makeEnum(name: string, options: string, values: ItemEnum[], line: number, length: number): Enum {
+function makeEnum(
+  name:    string, 
+  options: string, 
+  values:  ItemEnum[], 
+  line:    number, 
+  length:  number, 
+  scope:   ScopeInfo
+): Enum {
   return {
     kind: 'enum',
     name,
     options,
     values, 
-    range: makeRange(line, length)
+    range: makeRange(line, length),
+    reach: { ...scope }
   };
 }
 
-function makeDeclaredFile(name: string, fileType: string, fileOptions: string, line: number, length: number): DeclaredFile {
+function makeDeclaredFile(
+  name:        string, 
+  fileType:    string, 
+  fileOptions: string, 
+  line:        number, 
+  length:      number, 
+  scope:       ScopeInfo
+): DeclaredFile {
   return {
     kind: 'declaredFile',
     name,
     fileType,
     fileOptions,
-    range: makeRange(line, length)
+    range: makeRange(line, length),
+    reach: { ...scope }
   };
 }
 
-function makeToDo(text: string, line: number, length: number): ToDo {
+function makeToDo(
+  text:   string, 
+  line:   number, 
+  length: number, 
+  scope:  ScopeInfo
+): ToDo {
   return {
     kind: 'toDo',
     text,
-    range: makeRange(line, length)
+    range: makeRange(line, length),
+    reach: { ...scope }
   };
 }
 
-function extractContent(lineNum: number, lines: string[], endRegex: RegExp): string[] {
+function extractContent(
+  lineNum:  number, 
+  lines:    string[], 
+  endRegex: RegExp
+): string[] {
       let Content: string[] = [];
       let i = lineNum + 1;
       while (i < lines.length && !endRegex.test(lines[i] ?? '')) {
@@ -238,42 +434,82 @@ function extractContent(lineNum: number, lines: string[], endRegex: RegExp): str
       return Content.map(s => s.trim()).filter(s => s.length > 0);
 }
 
-function parseBlock(regex: RegExp, content: string[]) {
-  const items: { name: string; value: string; offset: number; lineText: string }[] = [];
+function parseBlock(
+  regex:   RegExp, 
+  content: string[]
+) {
+  const items: { 
+    name:     string; 
+    value:    string; 
+    offset:   number; 
+    lineText: string 
+  }[] = [];
   for (let i = 0; i < content.length; i++) {
     const lineText = content[i] ?? '';
-    const m = regex.exec(lineText);
-    if (m) {
-      items.push({ name: m[1]!.trim(), value: m[2]!.trim(), offset: i, lineText });
+    const execRegex = regex.exec(lineText);
+    if (execRegex) {
+      items.push({ 
+        name:   execRegex[1]!.trim(), 
+        value:  execRegex[2]!.trim(), 
+        offset: i, 
+        lineText 
+      });
     }
   }
   return items;
 }
 
-function extractTab(def: string): { isTab: boolean; tabDim: string } {
-  const mTab = TABDIM_RE.exec(def);
-  if (mTab) return { isTab: true, tabDim: (mTab[1] ?? '').trim() };
-  return { isTab: false, tabDim: '' };
+function extractTab(def: string): { 
+  isTab:  boolean; 
+  tabDim: string 
+} {
+  const execRegex = TABDIM_RE.exec(def);
+  if (execRegex) return { 
+    isTab: true, 
+    tabDim: (execRegex[1] ?? '').trim() 
+  };
+  return { 
+    isTab: false, 
+    tabDim: '' 
+  };
 }
 
-function parseItemsForDS(regex: RegExp, content: string[], line: number): ItemDS[] {
+function parseItemsForDS(
+  regex:     RegExp, 
+  content:   string[], 
+  line:      number,
+  ownerName: string
+): ItemDS[] {
   const items = parseBlock(regex, content);
-  return items.map(i => ({
+  return items.map(item => ({
     kind: 'itemDS',
-    name: i.name,
-    dclType: i.value,
-    isTab: extractTab(i.value).isTab,
-    tabDim: extractTab(i.value).tabDim,
-    range: makeRange(line + 1 + i.offset, i.lineText.length)
+    name: item.name,
+    dclType: item.value,
+    isTab: extractTab(item.value).isTab,
+    tabDim: extractTab(item.value).tabDim,
+    range: makeRange(line + 1 + item.offset, item.lineText.length),
+    reach: {
+      scopeKind: 'dataStructure',
+      ownerName
+    }
   }));
 }
 
-function parseItemsForEnum(regex: RegExp, content: string[], line: number): ItemEnum[] {
+function parseItemsForEnum(
+  regex:     RegExp, 
+  content:   string[], 
+  line:      number,
+  ownerName: string
+): ItemEnum[] {
   const items = parseBlock(regex, content);
-  return items.map(i => ({
+  return items.map(item => ({
     kind: 'itemEnum',
-    name: i.name,
-    value: i.value,
-    range: makeRange(line + 1 + i.offset, i.lineText.length)
-  }));
+    name: item.name,
+    value: item.value,
+    range: makeRange(line + 1 + item.offset, item.lineText.length),
+    reach: {
+      scopeKind: 'enum',
+      ownerName: ownerName
+    }
+  }))
 }
